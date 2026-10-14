@@ -1,0 +1,48 @@
+# Dependencias
+node_modules/
+.pnp
+.pnp.js
+
+# Compilación y producción
+dist/
+build/
+
+# Bases de datos y archivos de sesión local (privacidad del inversor)
+*.sqlite
+*.sqlite3
+*.db
+portfolio.db
+server/database.sqlite
+
+# Caché pesada de balances SEC EDGAR (~444 MB de JSONs descargados)
+server/data/sec_cache/
+
+# Archivos de entorno y credenciales
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Python caché
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Logs del sistema
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# IDE y configuración del editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Sistema operativo
+.DS_Store
+Thumbs.db

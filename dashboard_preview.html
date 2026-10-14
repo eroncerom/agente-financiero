@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Dashboard Financiero - Prototipo UI/UX</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Custom scrollbars for clean financial terminal look */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: #0b0e14; }
+    ::-webkit-scrollbar-thumb { background: #22314e; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #38bdf8; }
+    .badge-glow-yellow {
+      box-shadow: 0 0 12px rgba(250, 204, 21, 0.25);
+    }
+  </style>
+</head>
+<body class="bg-[#0B0E14] text-[#F8FAFC] font-sans antialiased min-h-screen p-4 select-none">
+
+  <!-- Top Navigation Bar -->
+  <header class="h-14 border-b border-[#1E293B] flex items-center justify-between px-4 mb-4 bg-[#121824] rounded-lg">
+    <div class="flex items-center space-x-3">
+      <div class="w-3 h-3 rounded-full bg-[#38BDF8] animate-pulse"></div>
+      <span class="text-sm font-bold tracking-wider text-[#F8FAFC] uppercase">Terminal de Decisiones Financieras</span>
+      <span class="text-xs px-2 py-0.5 rounded bg-[#1E293B] text-[#38BDF8] border border-[#38BDF8]/30">V1.0 Architecture UI</span>
+    </div>
+    <div class="flex items-center space-x-6 text-xs text-[#94A3B8]">
+      <div class="flex items-center space-x-2">
+        <span>Estado BBDD Local:</span>
+        <span class="text-[#10B981] font-semibold flex items-center">
+          <span class="w-2 h-2 rounded-full bg-[#10B981] inline-block mr-1"></span> SQLite Conectada
+        </span>
+      </div>
+      <div class="flex items-center space-x-2">
+        <span>Régimen Macro:</span>
+        <span class="text-[#FACC15] font-semibold bg-[#FACC15]/10 px-2 py-0.5 rounded border border-[#FACC15]/30 badge-glow-yellow">
+          Curva Normalizándose (Desinversión)
+        </span>
+      </div>
+      <div class="text-[#94A3B8] border-l border-[#1E293B] pl-4">
+        Última actualización: <span class="text-[#F8FAFC]">11:00:00</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main 3-Column Layout -->
+  <div class="grid grid-cols-12 gap-4 h-[calc(100vh-5.5rem)]">
+
+    <!-- ========================================== -->
+    <!-- COLUMNA 1 (IZQUIERDA): MIS COMPRAS (25%)   -->
+    <!-- ========================================== -->
+    <section class="col-span-3 bg-[#121824] border border-[#1E293B] rounded-xl flex flex-col p-4 overflow-hidden">
+      <!-- Header de Columna -->
+      <div class="flex items-center justify-between pb-3 border-b border-[#1E293B]">
+        <div>
+          <h2 class="text-xs font-semibold uppercase tracking-wider text-[#94A3B8]">Pilar Cartera</h2>
+          <p class="text-base font-bold text-[#F8FAFC]">Mis Compras</p>
+        </div>
+        <button onclick="openModal('modal-add-trade')" class="px-2.5 py-1 text-xs font-medium rounded-md bg-[#38BDF8]/10 text-[#38BDF8] hover:bg-[#38BDF8]/20 border border-[#38BDF8]/40 transition">
+          + Añadir Compra
+        </button>
+      </div>
+
+      <!-- Resumen Consolidado Cartera -->
+      <div class="grid grid-cols-2 gap-2 my-3 p-2.5 rounded-lg bg-[#0B0E14] border border-[#1E293B]/60">
+        <div>
+          <span class="text-[11px] text-[#94A3B8] block">Invertido Total</span>
+          <span class="text-sm font-bold text-[#F8FAFC]">48,320.00 €</span>
+        </div>
+        <div>
+          <span class="text-[11px] text-[#94A3B8] block">P&L Global</span>
+          <span class="text-sm font-bold text-[#10B981]">+8,140.50 € (+16.8%)</span>
+        </div>
+      </div>
+
+      <!-- Encabezados de Tabla de Compras -->
+      <div class="grid grid-cols-12 text-[11px] text-[#94A3B8] uppercase font-semibold px-2 py-1.5 border-b border-[#1E293B]/60">
+        <span class="col-span-4">Activo</span>
+        <span class="col-span-3 text-right">Compra</span>
+        <span class="col-span-2 text-right">Actual</span>
+        <span class="col-span-3 text-right">% Var.</span>
+      </div>
+
+      <!-- Lista de Activos Comprados (Scrollable) -->
+      <div class="flex-1 overflow-y-auto space-y-1.5 pr-1 py-2">
+        
+        <!-- Fila 1: Positivo (Verde) -->
+        <div class="grid grid-cols-12 items-center p-2 rounded-lg bg-[#161F30]/50 hover:bg-[#1A263D] border border-transparent hover:border-[#38BDF8]/40 transition cursor-pointer">
+          <div class="col-span-4">
+            <span class="text-sm font-bold text-[#F8FAFC] block">MSFT</span>
+            <span class="text-[11px] text-[#38BDF8] truncate block">Microsoft Corp.</span>
+          </div>
+          <div class="col-span-3 text-right text-xs text-[#94A3B8]">
+            $342.10
+          </div>
+          <div class="col-span-2 text-right text-xs font-medium text-[#F8FAFC]">
+            $428.50
+          </div>
+          <div class="col-span-3 text-right">
+            <span class="text-xs font-bold text-[#10B981] bg-[#10B981]/10 px-1.5 py-0.5 rounded border border-[#10B981]/20">
+              +25.26%
+            </span>
+          </div>
+        </div>
+
+        <!-- Fila 2: Positivo (Verde) -->
+        <div class="grid grid-cols-12 items-center p-2 rounded-lg bg-[#161F30]/50 hover:bg-[#1A263D] border border-transparent hover:border-[#38BDF8]/40 transition cursor-pointer">
+          <div class="col-span-4">
+            <span class="text-sm font-bold text-[#F8FAFC] block">ASML</span>
+            <span class="text-[11px] text-[#38BDF8] truncate block">ASML Holding</span>
+          </div>
+          <div class="col-span-3 text-right text-xs text-[#94A3B8]">
+            €710.00
+          </div>
+          <div class="col-span-2 text-right text-xs font-medium text-[#F8FAFC]">
+            €864.20
+          </div>
+          <div class="col-span-3 text-right">
+            <span class="text-xs font-bold text-[#10B981] bg-[#10B981]/10 px-1.5 py-0.5 rounded border border-[#10B981]/20">
+              +21.72%
+            </span>
+          </div>
+        </div>
+
+        <!-- Fila 3: Negativo (Rojo) -->
+        <div class="grid grid-cols-12 items-center p-2 rounded-lg bg-[#161F30]/50 hover:bg-[#1A263D] border border-transparent hover:border-[#38BDF8]/40 transition cursor-pointer">
+          <div class="col-span-4">
+            <span class="text-sm font-bold text-[#F8FAFC] block">ADBE</span>
+            <span class="text-[11px] text-[#38BDF8] truncate block">Adobe Inc.</span>
+          </div>
+          <div class="col-span-3 text-right text-xs text-[#94A3B8]">
+            $540.00
+          </div>
+          <div class="col-span-2 text-right text-xs font-medium text-[#F8FAFC]">
+            $488.10
+          </div>
+          <div class="col-span-3 text-right">
+            <span class="text-xs font-bold text-[#EF4444] bg-[#EF4444]/10 px-1.5 py-0.5 rounded border border-[#EF4444]/20">
+              -9.61%
+            </span>
+          </div>
+        </div>
+
+        <!-- Fila 4: Neutro = 0.00% (Blanco) -->
+        <div class="grid grid-cols-12 items-center p-2 rounded-lg bg-[#161F30]/50 hover:bg-[#1A263D] border border-transparent hover:border-[#38BDF8]/40 transition cursor-pointer">
+          <div class="col-span-4">
+            <span class="text-sm font-bold text-[#F8FAFC] block">GOOGL</span>
+            <span class="text-[11px] text-[#38BDF8] truncate block">Alphabet Inc.</span>
+          </div>
+          <div class="col-span-3 text-right text-xs text-[#94A3B8]">
+            $175.50
+          </div>
+          <div class="col-span-2 text-right text-xs font-medium text-[#F8FAFC]">
+            $175.50
+          </div>
+          <div class="col-span-3 text-right">
+            <span class="text-xs font-bold text-[#FFFFFF] bg-[#FFFFFF]/10 px-1.5 py-0.5 rounded border border-[#FFFFFF]/20">
+              0.00%
+            </span>
+          </div>
+        </div>
+
+        <!-- Fila 5: Negativo (Rojo) -->
+        <div class="grid grid-cols-12 items-center p-2 rounded-lg bg-[#161F30]/50 hover:bg-[#1A263D] border border-transparent hover:border-[#38BDF8]/40 transition cursor-pointer">
+          <div class="col-span-4">
+            <span class="text-sm font-bold text-[#F8FAFC] block">NVO</span>
+            <span class="text-[11px] text-[#38BDF8] truncate block">Novo Nordisk</span>
+          </div>
+          <div class="col-span-3 text-right text-xs text-[#94A3B8]">
+            $128.00
+          </div>
+          <div class="col-span-2 text-right text-xs font-medium text-[#F8FAFC]">
+            $124.80
+          </div>
+          <div class="col-span-3 text-right">
+            <span class="text-xs font-bold text-[#EF4444] bg-[#EF4444]/10 px-1.5 py-0.5 rounded border border-[#EF4444]/20">
+              -2.50%
+            </span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Pie de Columna con Info BBDD -->
+      <div class="pt-3 border-t border-[#1E293B] text-[11px] text-[#94A3B8] flex items-center justify-between">
+        <span>5 Posiciones activas</span>
+        <span class="text-[#38BDF8] cursor-pointer hover:underline" onclick="alert('Exportador SQLite disponible en fase de implementación')">BBDD: portfolio.db</span>
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- COLUMNA 2 (CENTRAL): PILAR FUNDAMENTAL (47%) -->
+    <!-- ========================================== -->
+    <section class="col-span-6 bg-[#121824] border border-[#1E293B] rounded-xl flex flex-col p-5 overflow-hidden">
+      
+      <!-- Selector de Oportunidades Filtradas -->
+      <div class="flex items-center justify-between pb-3 border-b border-[#1E293B]">
+        <div class="flex items-center space-x-3">
+          <div>
+            <h2 class="text-xs font-semibold uppercase tracking-wider text-[#94A3B8]">Pilar Central</h2>
+            <p class="text-base font-bold text-[#F8FAFC]">Análisis Fundamental (Oportunidades)</p>
+          </div>
+        </div>
+        <!-- Pestañas de compañías que cumplen criterios -->
+        <div class="flex space-x-1.5 bg-[#0B0E14] p-1 rounded-lg border border-[#1E293B]">
+          <button class="px-3 py-1 text-xs font-bold rounded bg-[#38BDF8] text-[#0B0E14] shadow">ASML</button>
+          <button class="px-3 py-1 text-xs font-medium rounded text-[#94A3B8] hover:text-[#F8FAFC]">MSFT</button>
+          <button class="px-3 py-1 text-xs font-medium rounded text-[#94A3B8] hover:text-[#F8FAFC]">V</button>
+          <button class="px-3 py-1 text-xs font-medium rounded text-[#94A3B8] hover:text-[#F8FAFC]">LIN</button>
+        </div>
+      </div>
+
+      <!-- Tarjeta Principal del Activo en Foco (ASML) -->
+      <div class="my-4 p-4 rounded-xl bg-gradient-to-r from-[#161F30] to-[#121824] border border-[#22314E] flex items-center justify-between">
+        <div>
+          <div class="flex items-center space-x-2">
+            <span class="text-2xl font-black tracking-tight text-[#F8FAFC]">ASML Holding N.V.</span>
+            <span class="text-xs px-2 py-0.5 rounded bg-[#38BDF8]/10 text-[#38BDF8] border border-[#38BDF8]/30 font-semibold">Semiconductores / Litografía</span>
+          </div>
+          <p class="text-xs text-[#94A3B8] mt-1">Filtro Cumplido: <span class="text-[#F8FAFC] font-medium">Calidad Triple A + Foso Monopólico + Generación FCF Sólida</span></p>
+        </div>
+
+        <!-- Métrica destacada en Amarillo -->
+        <div class="text-right bg-[#0B0E14]/80 p-3 rounded-xl border border-[#FACC15]/40 badge-glow-yellow">
+          <span class="text-[10px] uppercase font-bold tracking-wider text-[#FACC15] block">Catalizador Fundamental</span>
+          <span class="text-xl font-extrabold text-[#FACC15]">ROIC: 36.4%</span>
+          <span class="text-[10px] text-[#94A3B8] block">Ventaja competitiva crítica</span>
+        </div>
+      </div>
+
+      <!-- Dashboard de Métricas Fundamentales Limpio (2x3 Grid) -->
+      <div class="grid grid-cols-3 gap-3 flex-1">
+        
+        <!-- Tarjeta 1: Rentabilidad de Capital -->
+        <div class="p-3.5 rounded-xl bg-[#0B0E14] border border-[#1E293B] flex flex-col justify-between">
+          <div>
+            <div class="flex items-center justify-between">
+              <span class="text-xs text-[#94A3B8] font-semibold">Retorno s/ Capital</span>
+              <span class="w-2 h-2 rounded-full bg-[#10B981]"></span>
+            </div>
+            <div class="mt-2">
+              <span class="text-2xl font-bold text-[#F8FAFC]">36.4%</span>
+              <span class="text-xs text-[#10B981] ml-1">ROIC</span>
+            </div>
+            <div class="text-xs text-[#94A3B8] mt-1">ROE: <span class="text-[#F8FAFC]">54.2%</span> | ROCE: <span class="text-[#F8FAFC]">41.1%</span></div>
+          </div>
+          <div class="w-full bg-[#1E293B] h-1.5 rounded-full mt-3 overflow-hidden">
+            <div class="bg-[#10B981] h-1.5 rounded-full" style="width: 88%"></div>
+          </div>
+        </div>
+
+        <!-- Tarjeta 2: Valoración Relativa -->
+        <div class="p-3.5 rounded-xl bg-[#0B0E14] border border-[#1E293B] flex flex-col justify-between">
+          <div>
+            <div class="flex items-center justify-between">
+              <span class="text-xs text-[#94A3B8] font-semibold">Valoración Múltiplos</span>
+              <span class="w-2 h-2 rounded-full bg-[#38BDF8]"></span>
+            </div>
+            <div class="mt-2">
+              <span class="text-2xl font-bold text-[#F8FAFC]">28.5x</span>
+              <span class="text-xs text-[#38BDF8] ml-1">EV / FCF</span>
+            </div>
+            <div class="text-xs text-[#94A3B8] mt-1">P/E NTM: <span class="text-[#F8FAFC]">31.2x</span> (vs 38x hist.)</div>
+          </div>
+          <div class="w-full bg-[#1E293B] h-1.5 rounded-full mt-3 overflow-hidden">
+            <div class="bg-[#38BDF8] h-1.5 rounded-full" style="width: 65%"></div>
+          </div>
+        </div>
+
+        <!-- Tarjeta 3: Salud Financiera & Solvencia -->
+        <div class="p-3.5 rounded-xl bg-[#0B0E14] border border-[#1E293B] flex flex-col justify-between">
+          <div>
+            <div class="flex items-center justify-between">
+              <span class="text-xs text-[#94A3B8] font-semibold">Solvencia & Balance</span>
+              <span class="w-2 h-2 rounded-full bg-[#10B981]"></span>
+            </div>
+            <div class="mt-2">
+              <span class="text-2xl font-bold text-[#F8FAFC]">0.12x</span>
+              <span class="text-xs text-[#10B981] ml-1">Deuda / EBITDA</span>
+            </div>
+            <div class="text-xs text-[#94A3B8] mt-1">Caja Neta: <span class="text-[#F8FAFC]">Prácticamente Nula</span></div>
+          </div>
+          <div class="w-full bg-[#1E293B] h-1.5 rounded-full mt-3 overflow-hidden">
+            <div class="bg-[#10B981] h-1.5 rounded-full" style="width: 95%"></div>
+          </div>
+        </div>
+
+        <!-- Tarjeta 4: Márgenes de Negocio -->
+        <div class="p-3.5 rounded-xl bg-[#0B0E14] border border-[#1E293B] flex flex-col justify-between">
+          <div>
+            <span class="text-xs text-[#94A3B8] font-semibold">Margen Operativo</span>
+            <div class="mt-2">
+              <span class="text-2xl font-bold text-[#F8FAFC]">32.8%</span>
+              <span class="text-xs text-[#38BDF8] ml-1">EBIT %</span>
+            </div>
+            <div class="text-xs text-[#94A3B8] mt-1">Margen Bruto: <span class="text-[#F8FAFC]">51.3%</span></div>
+          </div>
+          <div class="w-full bg-[#1E293B] h-1.5 rounded-full mt-3 overflow-hidden">
+            <div class="bg-[#38BDF8] h-1.5 rounded-full" style="width: 78%"></div>
+          </div>
+        </div>
+
+        <!-- Tarjeta 5: Conversión de Caja -->
+        <div class="p-3.5 rounded-xl bg-[#0B0E14] border border-[#1E293B] flex flex-col justify-between">
+          <div>
+            <span class="text-xs text-[#94A3B8] font-semibold">Conversión FCF</span>
+            <div class="mt-2">
+              <span class="text-2xl font-bold text-[#F8FAFC]">94.0%</span>
+              <span class="text-xs text-[#10B981] ml-1">Caja Limpia</span>
+            </div>
+            <div class="text-xs text-[#94A3B8] mt-1">CapEx / Ventas: <span class="text-[#F8FAFC]">7.2%</span></div>
+          </div>
+          <div class="w-full bg-[#1E293B] h-1.5 rounded-full mt-3 overflow-hidden">
+            <div class="bg-[#10B981] h-1.5 rounded-full" style="width: 90%"></div>
+          </div>
+        </div>
+
+        <!-- Tarjeta 6: Foco de Seguridad -->
+        <div class="p-3.5 rounded-xl bg-[#0B0E14] border border-[#FACC15]/30 flex flex-col justify-between">
+          <div>
+            <span class="text-xs text-[#FACC15] font-semibold uppercase">Piotroski Score</span>
+            <div class="mt-2">
+              <span class="text-2xl font-bold text-[#FACC15]">8 / 9</span>
+              <span class="text-xs text-[#F8FAFC] ml-1">Fuerte</span>
+            </div>
+            <div class="text-xs text-[#94A3B8] mt-1">Altman Z-Score: <span class="text-[#F8FAFC]">7.8 (Zona Segura)</span></div>
+          </div>
+          <div class="w-full bg-[#1E293B] h-1.5 rounded-full mt-3 overflow-hidden">
+            <div class="bg-[#FACC15] h-1.5 rounded-full" style="width: 89%"></div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Barra de Navegación a Explicaciones (Drill-Down) -->
+      <div class="pt-4 border-t border-[#1E293B] flex items-center justify-between">
+        <span class="text-xs text-[#94A3B8]">Visión simplificada. Sin redundancia informativa.</span>
+        <button onclick="openModal('modal-thesis')" class="px-4 py-2 text-xs font-semibold rounded-lg bg-[#38BDF8] text-[#0B0E14] hover:bg-[#38BDF8]/90 transition flex items-center space-x-2">
+          <span>Ver Tesis y Explicación Detallada</span>
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+        </button>
+      </div>
+
+    </section>
+
+    <!-- ========================================== -->
+    <!-- COLUMNA 3 (DERECHA): MACRO & GROWING (28%) -->
+    <!-- ========================================== -->
+    <section class="col-span-3 flex flex-col space-y-4">
+      
+      <!-- BLOQUE 1 (SUPERIOR DERECHO): MACRO & CURVA DE DEUDA -->
+      <div class="bg-[#121824] border border-[#1E293B] rounded-xl p-4 flex-1 flex flex-col">
+        <div class="flex items-center justify-between pb-2 border-b border-[#1E293B]">
+          <div>
+            <h2 class="text-xs font-semibold uppercase tracking-wider text-[#94A3B8]">Entorno Macro</h2>
+            <p class="text-sm font-bold text-[#F8FAFC]">Curva de Rendimiento de Deuda</p>
+          </div>
+          <span class="text-[11px] text-[#38BDF8] font-mono">10Y - 2Y: <strong class="text-[#10B981]">+0.18%</strong></span>
+        </div>
+
+        <!-- Gráfico Vectorial Curva de Tipos (SVG) -->
+        <div class="my-2 flex-1 flex flex-col justify-center">
+          <div class="text-[11px] flex justify-between text-[#94A3B8] mb-1">
+            <span>Rendimiento (%)</span>
+            <span class="flex items-center space-x-2">
+              <span class="inline-block w-3 h-0.5 bg-[#38BDF8]"></span> <span class="text-[10px]">Actual</span>
+              <span class="inline-block w-3 h-0.5 bg-[#64748B] border-dashed"></span> <span class="text-[10px]">6M atrás</span>
+            </span>
+          </div>
+
+          <!-- SVG Visual Chart of Yield Curve -->
+          <div class="bg-[#0B0E14] p-2 rounded-lg border border-[#1E293B]/80 relative h-36 flex items-end">
+            <svg class="w-full h-full overflow-visible" viewBox="0 0 300 100" preserveAspectRatio="none">
+              <!-- Grid lines -->
+              <line x1="0" y1="20" x2="300" y2="20" stroke="#1E293B" stroke-dasharray="2" />
+              <line x1="0" y1="50" x2="300" y2="50" stroke="#1E293B" stroke-dasharray="2" />
+              <line x1="0" y1="80" x2="300" y2="80" stroke="#1E293B" stroke-dasharray="2" />
+              
+              <!-- Curva Pasada (6m atrás - Invertida) -->
+              <path d="M 10,25 Q 70,18 150,45 T 290,55" fill="none" stroke="#64748B" stroke-width="1.5" stroke-dasharray="3" />
+              
+              <!-- Curva Actual (Normalizándose) -->
+              <path d="M 10,40 Q 70,45 150,32 T 290,15" fill="none" stroke="#38BDF8" stroke-width="2.5" />
+
+              <!-- Puntos Clave Actuales -->
+              <circle cx="10" cy="40" r="3.5" fill="#38BDF8" />
+              <circle cx="70" cy="45" r="3.5" fill="#38BDF8" />
+              <circle cx="150" cy="32" r="3.5" fill="#38BDF8" />
+              <circle cx="220" cy="22" r="3.5" fill="#38BDF8" />
+              <circle cx="290" cy="15" r="4" fill="#FACC15" />
+            </svg>
+          </div>
+
+          <!-- Etiquetas de Vencimiento Eje X -->
+          <div class="flex justify-between text-[10px] text-[#94A3B8] px-1 mt-1 font-mono">
+            <span>3M (4.3%)</span>
+            <span>2Y (3.9%)</span>
+            <span>5Y (3.8%)</span>
+            <span>10Y (4.1%)</span>
+            <span class="text-[#FACC15] font-bold">30Y (4.4%)</span>
+          </div>
+        </div>
+
+        <!-- Indicador de Punto del Ciclo -->
+        <div class="mt-1 p-2 rounded-lg bg-[#0B0E14] border border-[#1E293B] flex items-center justify-between text-xs">
+          <span class="text-[#94A3B8]">Fase de Mercado:</span>
+          <span class="font-bold text-[#FACC15] bg-[#FACC15]/10 px-2 py-0.5 rounded border border-[#FACC15]/20">
+            Fase Tardía / Desinversión
+          </span>
+        </div>
+      </div>
+
+      <!-- BLOQUE 2 (INFERIOR DERECHO): GROWING ANALYSIS DE LA OPORTUNIDAD -->
+      <div class="bg-[#121824] border border-[#1E293B] rounded-xl p-4 flex-1 flex flex-col">
+        <div class="flex items-center justify-between pb-2 border-b border-[#1E293B]">
+          <div>
+            <h2 class="text-xs font-semibold uppercase tracking-wider text-[#94A3B8]">Impulso Operativo</h2>
+            <p class="text-sm font-bold text-[#F8FAFC]">Growing Analysis (ASML)</p>
+          </div>
+          <span class="text-[11px] font-bold text-[#10B981] bg-[#10B981]/10 px-2 py-0.5 rounded border border-[#10B981]/20">
+            Acelerando
+          </span>
+        </div>
+
+        <!-- Métricas Growing -->
+        <div class="space-y-3 my-auto py-2">
+          
+          <!-- Crecimiento Ingresos -->
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-[#94A3B8]">Crecimiento Ventas (YoY):</span>
+              <span class="font-bold text-[#F8FAFC]">+18.4%</span>
+            </div>
+            <div class="w-full bg-[#0B0E14] h-2 rounded-full overflow-hidden border border-[#1E293B]">
+              <div class="bg-[#38BDF8] h-2 rounded-full" style="width: 72%"></div>
+            </div>
+            <span class="text-[10px] text-[#94A3B8]">CAGR 3 Años: <strong class="text-[#F8FAFC]">+21.2%</strong></span>
+          </div>
+
+          <!-- Crecimiento EPS -->
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-[#94A3B8]">Crecimiento BPA / EPS (YoY):</span>
+              <span class="font-bold text-[#10B981]">+24.6%</span>
+            </div>
+            <div class="w-full bg-[#0B0E14] h-2 rounded-full overflow-hidden border border-[#1E293B]">
+              <div class="bg-[#10B981] h-2 rounded-full" style="width: 82%"></div>
+            </div>
+            <span class="text-[10px] text-[#94A3B8]">Aceleración trimestral: <strong class="text-[#10B981]">+3.2% vs Q previo</strong></span>
+          </div>
+
+          <!-- Rule of 40 / Efficiency -->
+          <div class="p-2.5 rounded-lg bg-[#0B0E14] border border-[#1E293B]">
+            <div class="flex justify-between items-center text-xs">
+              <span class="text-[#94A3B8]">Efficiency (Ventas + FCF Marg):</span>
+              <span class="font-bold text-[#FACC15] text-sm">48.2%</span>
+            </div>
+            <span class="text-[10px] text-[#94A3B8] block mt-0.5">Supera umbral del 40% (Crecimiento de alta calidad)</span>
+          </div>
+
+        </div>
+
+        <div class="pt-2 border-t border-[#1E293B] text-[11px] text-[#94A3B8] flex justify-between">
+          <span>Momentum operacional:</span>
+          <span class="text-[#38BDF8] font-semibold">Tier 1 Elite</span>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <!-- ========================================== -->
+  <!-- MODAL SECUNDARIO: TESIS Y EXPLICACIONES    -->
+  <!-- ========================================== -->
+  <div id="modal-thesis" class="hidden fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-6 z-50">
+    <div class="bg-[#121824] border border-[#22314E] w-full max-w-2xl rounded-2xl p-6 shadow-2xl space-y-4">
+      <div class="flex justify-between items-center border-b border-[#1E293B] pb-3">
+        <div>
+          <span class="text-xs uppercase text-[#38BDF8] font-bold">Desglose Metodológico & Tesis</span>
+          <h3 class="text-lg font-bold text-[#F8FAFC]">¿Por qué ASML cumple el Pilar Fundamental?</h3>
+        </div>
+        <button onclick="closeModal('modal-thesis')" class="text-[#94A3B8] hover:text-[#F8FAFC] text-lg font-bold">✕</button>
+      </div>
+
+      <div class="text-xs text-[#94A3B8] space-y-3 leading-relaxed">
+        <p><strong class="text-[#F8FAFC]">1. Monopolio Tecnológico (EUV):</strong> Único fabricante mundial de máquinas de litografía ultravioleta extrema indispensables para chips sub-3nm.</p>
+        <p><strong class="text-[#F8FAFC]">2. Retorno sobre Capital Orgánico:</strong> Su ROIC del 36.4% demuestra pricing power sin necesidad de apalancamiento financiero agresivo.</p>
+        <p><strong class="text-[#F8FAFC]">3. Relación con el Ciclo Macro:</strong> En fases de desinversión de la curva de deuda, empresas con caja neta y backlog garantizado mantienen mayor resiliencia de flujos.</p>
+      </div>
+
+      <div class="pt-3 border-t border-[#1E293B] flex justify-end">
+        <button onclick="closeModal('modal-thesis')" class="px-4 py-1.5 rounded-lg bg-[#1E293B] text-xs font-semibold text-[#F8FAFC] hover:bg-[#27354f]">
+          Cerrar Explicación
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- MODAL SECUNDARIO: AÑADIR COMPRA EN BBDD    -->
+  <!-- ========================================== -->
+  <div id="modal-add-trade" class="hidden fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-6 z-50">
+    <div class="bg-[#121824] border border-[#22314E] w-full max-w-md rounded-2xl p-6 shadow-2xl space-y-4">
+      <div class="flex justify-between items-center border-b border-[#1E293B] pb-3">
+        <h3 class="text-base font-bold text-[#F8FAFC]">Registrar Nueva Compra en BBDD Local</h3>
+        <button onclick="closeModal('modal-add-trade')" class="text-[#94A3B8] hover:text-[#F8FAFC] text-lg font-bold">✕</button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="text-[#94A3B8] block mb-1">Ticker / Símbolo</label>
+          <input type="text" placeholder="Ej: AAPL" class="w-full bg-[#0B0E14] border border-[#1E293B] rounded px-3 py-2 text-[#F8FAFC] focus:border-[#38BDF8] outline-none uppercase font-mono">
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="text-[#94A3B8] block mb-1">Nº Acciones</label>
+            <input type="number" placeholder="10" class="w-full bg-[#0B0E14] border border-[#1E293B] rounded px-3 py-2 text-[#F8FAFC] focus:border-[#38BDF8] outline-none">
+          </div>
+          <div>
+            <label class="text-[#94A3B8] block mb-1">Precio Compra</label>
+            <input type="number" placeholder="150.00" class="w-full bg-[#0B0E14] border border-[#1E293B] rounded px-3 py-2 text-[#F8FAFC] focus:border-[#38BDF8] outline-none">
+          </div>
+        </div>
+        <div>
+          <label class="text-[#94A3B8] block mb-1">Fecha de Ejecución</label>
+          <input type="date" value="2026-10-01" class="w-full bg-[#0B0E14] border border-[#1E293B] rounded px-3 py-2 text-[#F8FAFC] focus:border-[#38BDF8] outline-none">
+        </div>
+      </div>
+
+      <div class="pt-3 border-t border-[#1E293B] flex justify-end space-x-2">
+        <button onclick="closeModal('modal-add-trade')" class="px-3 py-1.5 rounded-lg bg-[#1E293B] text-xs font-semibold text-[#94A3B8] hover:text-[#F8FAFC]">Cancelar</button>
+        <button onclick="closeModal('modal-add-trade'); alert('Registro simulado en SQLite local exitoso');" class="px-4 py-1.5 rounded-lg bg-[#38BDF8] text-xs font-bold text-[#0B0E14] hover:bg-[#38BDF8]/90">Guardar en BBDD</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function openModal(id) {
+      document.getElementById(id).classList.remove('hidden');
+    }
+    function closeModal(id) {
+      document.getElementById(id).classList.add('hidden');
+    }
+  </script>
+
+</body>
+</html>

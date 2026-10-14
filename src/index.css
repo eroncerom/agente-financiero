@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+    max-height: 100vh;
+    overflow: hidden;
+  }
+  body {
+    @apply bg-canvas text-textPrimary font-sans antialiased select-none;
+  }
+}
+
+/* Custom scrollbars for high-end financial terminal aesthetic */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0B0E14;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #22314E;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #38BDF8;
+}
+
+.glow-yellow {
+  box-shadow: 0 0 16px rgba(250, 204, 21, 0.25);
+}
+
+.glow-blue {
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.2);
+}

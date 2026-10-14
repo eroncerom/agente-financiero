@@ -1,0 +1,14 @@
+{
+  "_doc": "Parámetros de mercado del motor Pilar 1. 'erp' se actualiza desde la web de Damodaran (server/data_sources/damodaran_erp.py). 'rf_*' lo mantiene market_service.mjs con validación de curva. 'sec_user_agent' DEBE contener un contacto real (exigencia de la SEC).",
+  "erp": 0.042,
+  "erp_fecha": "2026-10-01",
+  "erp_fuente": "Damodaran Implied ERP (Trailing 12 month, with adjusted payout) - pages.stern.nyu.edu/~adamodar",
+  "erp_rf_referencia": 0.0529,
+  "rf_ultimo_valido": 0.0475,
+  "rf_fecha": "2026-09-01",
+  "rf_fuente": "Damodaran (US Treasury 10Y usado en ERP implícita 1-sep-2026)",
+  "rf_estado": "SEMILLA",
+  "rf_motivo": "Valor inicial; se sustituye por ^TNX en vivo cuando supera la validación de curva.",
+  "blume_peso_beta": 0.67,
+  "sec_user_agent": "AgenteFinanciero/1.0 configurar-email@ejemplo.com"
+}
