@@ -59,7 +59,8 @@ namespace AgenteFinanciero
                         return;
                     }
 
-                    // Launch node server hidden in the background
+                    // Launch node server hidden in the background, logging errors if any
+                    string logFile = Path.Combine(baseDir, "server_error.log");
                     ProcessStartInfo psi = new ProcessStartInfo
                     {
                         FileName = nodeExe,
@@ -67,28 +68,61 @@ namespace AgenteFinanciero
                         WorkingDirectory = baseDir,
                         CreateNoWindow = true,
                         UseShellExecute = false,
+                        RedirectStandardError = true,
                         WindowStyle = ProcessWindowStyle.Hidden
                     };
 
-                    Process.Start(psi);
+                    Process nodeProc = new Process();
+                    nodeProc.StartInfo = psi;
+                    nodeProc.ErrorDataReceived += (s, e) =>
+                    {
+                        if (!string.IsNullOrEmpty(e.Data))
+                        {
+                            try { File.AppendAllText(logFile, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " [ERROR] " + e.Data + Environment.NewLine); } catch { }
+                        }
+                    };
+
+                    nodeProc.Start();
+                    nodeProc.BeginErrorReadLine();
 
                     // Wait up to 15 seconds for server to be responsive
                     int maxRetries = 30;
                     int retry = 0;
                     while (retry < maxRetries && !IsServerResponding(HealthUrl, 500))
                     {
+                        if (nodeProc.HasExited)
+                        {
+                            break;
+                        }
                         Thread.Sleep(500);
                         retry++;
                     }
 
                     if (!IsServerResponding(HealthUrl, 1000))
                     {
+                        string errorDetails = "";
+                        if (File.Exists(logFile))
+                        {
+                            try { errorDetails = File.ReadAllText(logFile); } catch { }
+                        }
+
+                        string message = "El servidor de la aplicación no pudo iniciarse correctamente.";
+                        if (!string.IsNullOrWhiteSpace(errorDetails))
+                        {
+                            message += "\n\nDetalle del error:\n" + (errorDetails.Length > 400 ? errorDetails.Substring(errorDetails.Length - 400) : errorDetails);
+                        }
+                        else
+                        {
+                            message += "\nComprueba los registros o intenta arrancar de nuevo.";
+                        }
+
                         MessageBox.Show(
-                            "El servidor de la aplicación tardó demasiado en iniciar.\nComprueba los registros o intenta arrancar de nuevo.",
-                            "Agente Financiero - Advertencia",
+                            message,
+                            "Agente Financiero - Error al Iniciar",
                             MessageBoxButtons.OK,
-                            MessageBoxIcon.Warning
+                            MessageBoxIcon.Error
                         );
+                        return;
                     }
                 }
 
