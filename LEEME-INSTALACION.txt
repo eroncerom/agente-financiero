@@ -1,0 +1,36 @@
+========================================================================
+AGENTE FINANCIERO v1.0.0 - GUÍA RÁPIDA DE INSTALACIÓN
+Plataforma Institucional de Apoyo a Decisiones Financieras & Portafolio
+========================================================================
+
+¡Bienvenido! Este paquete contiene la aplicación lista para su uso en Windows.
+
+INSTRUCCIONES DE INSTALACIÓN:
+------------------------------------------------------------------------
+1. Haga doble clic en el archivo "Instalador-Agente-Financiero.exe".
+2. Si Windows muestra una alerta de "SmartScreen" (debido a ser un ejecutable nuevo),
+   haga clic en "Más información" y luego en "Ejecutar de todas formas".
+3. En la ventana del instalador, seleccione la carpeta de destino deseada
+   (por defecto se instalará en su carpeta personal sin requerir permisos de administrador).
+4. Asegúrese de que la casilla "Crear acceso directo en el Escritorio" esté marcada.
+5. Haga clic en "Instalar Ahora".
+6. Al finalizar, la aplicación se iniciará automáticamente y dispondrá de un
+   acceso directo en su Escritorio con el nombre "Agente Financiero".
+
+CARACTERÍSTICAS DE ESTA VERSIÓN:
+------------------------------------------------------------------------
+- Base de datos inicial limpia: No contiene datos previos, lista para que introduzca
+  sus propias operaciones, compras y compañías en seguimiento.
+- Portátil y autónomo: Incluye su propio motor de ejecución, por lo que NO necesita
+  instalar Node.js, Git ni ninguna herramienta de desarrollo.
+- 100% Privado y Local: Todos sus datos financieros se guardan exclusivamente en su PC
+  en una base de datos local SQLite (portfolio.db).
+- Cotizaciones en tiempo real: Se conecta a mercados internacionales (S&P 500,
+  NASDAQ 100, IBEX 35) para actualizar precios y gráficos automáticamente.
+
+DESINSTALACIÓN:
+------------------------------------------------------------------------
+Para desinstalar en cualquier momento, ejecute "Desinstalar.bat" dentro de la
+carpeta donde instaló la aplicación. Se eliminarán todos los archivos y accesos directos.
+
+Soporte y documentación completa disponibles en README.md y SPEC.md.

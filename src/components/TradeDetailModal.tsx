@@ -17,6 +17,7 @@ interface TradeDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   position: PortfolioPosition | null;
+  initialOpenSell?: boolean;
   onUpdateTrade: (id: number, data: Partial<PortfolioTrade>) => Promise<void>;
   onDeleteTrade: (id: number) => Promise<void>;
   onCloseTrade: (data: {
@@ -33,6 +34,7 @@ export const TradeDetailModal: React.FC<TradeDetailModalProps> = ({
   isOpen,
   onClose,
   position,
+  initialOpenSell = false,
   onUpdateTrade,
   onDeleteTrade,
   onCloseTrade
@@ -93,6 +95,16 @@ export const TradeDetailModal: React.FC<TradeDetailModalProps> = ({
       setConfirmDeleteId(null);
     }
   }, [activeTrade?.id, position.fair_value]);
+
+  useEffect(() => {
+    if (isOpen && initialOpenSell && position) {
+      setIsSellOpen(true);
+      setCustomSellPrice(position.current_price.toString());
+      if (activeTrade) {
+        setSharesToSell(activeTrade.shares.toString());
+      }
+    }
+  }, [isOpen, initialOpenSell, position?.ticker, activeTrade?.id]);
 
   // Cálculos dinámicos
   const currentPrice = position.current_price;

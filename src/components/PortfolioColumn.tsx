@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { PlusCircle, Wallet, ArrowUpRight, ArrowDownRight, Minus, History, Target, AlertTriangle, RefreshCw, FileCheck2, ShoppingCart } from 'lucide-react';
+import { PlusCircle, Wallet, ArrowUpRight, ArrowDownRight, Minus, History, Target, AlertTriangle, RefreshCw, FileCheck2, ShoppingCart, TrendingUp } from 'lucide-react';
 import { PortfolioPosition, PortfolioSummary, PortfolioTrade, ClosedSummary } from '../types';
 import { TradeHistoryModal } from './TradeHistoryModal';
 import { TradeDetailModal } from './TradeDetailModal';
@@ -27,6 +27,7 @@ interface PortfolioColumnProps {
   onReopenTrade?: (id: number) => Promise<void>;
   onClearAllTrades?: () => Promise<void>;
   onUpdateTrade?: (id: number, data: Partial<PortfolioTrade>) => Promise<void>;
+  onAddDirectClosedTrade?: (data: any) => Promise<void>;
   onOpenFinancialDeepDive?: (ticker: string) => void;
   onOpenBuyTradeWithCompany?: (company: {
     ticker: string;
@@ -56,10 +57,13 @@ export const PortfolioColumn: React.FC<PortfolioColumnProps> = ({
   onReopenTrade = async () => {},
   onClearAllTrades = async () => {},
   onUpdateTrade = async () => {},
+  onAddDirectClosedTrade,
   onOpenFinancialDeepDive,
   onOpenBuyTradeWithCompany
 }) => {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [historyInitialTab, setHistoryInitialTab] = useState<'OPEN' | 'CLOSED'>('OPEN');
+  const [openSellDirectly, setOpenSellDirectly] = useState(false);
   const [showMetricsDetail, setShowMetricsDetail] = useState(false);
   const [selectedPositionForDetail, setSelectedPositionForDetail] = useState<PortfolioPosition | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -202,16 +206,35 @@ export const PortfolioColumn: React.FC<PortfolioColumnProps> = ({
             </button>
           )}
 
-          {/* Botón de Historial / Gestión de Operaciones */}
+          {/* Botón de Compras Activas */}
           <button
-            onClick={() => setIsHistoryOpen(true)}
+            onClick={() => {
+              setHistoryInitialTab('OPEN');
+              setIsHistoryOpen(true);
+            }}
             className="flex items-center space-x-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-cardSecondary hover:bg-cardHover text-textSecondary hover:text-textPrimary border border-borderSubtle transition"
-            title="Ver historial de operaciones y liquidaciones"
+            title="Ver compras activas y operaciones"
           >
             <History className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Historial</span>
-            <span className="text-[10px] font-mono px-1 rounded bg-black/20 text-accentSky">
+            <span className="hidden sm:inline">Activas</span>
+            <span className="text-[10px] font-mono px-1 rounded bg-black/20 text-accentSky font-bold">
               {trades.length}
+            </span>
+          </button>
+
+          {/* Botón de Ventas & Movimientos Realizados */}
+          <button
+            onClick={() => {
+              setHistoryInitialTab('CLOSED');
+              setIsHistoryOpen(true);
+            }}
+            className="flex items-center space-x-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-statusGreen/15 hover:bg-statusGreen/25 text-statusGreen border border-statusGreen/30 transition shadow-sm font-bold"
+            title="Consultar registro de ventas, ganancias/pérdidas y movimientos por fecha (por defecto último año)"
+          >
+            <TrendingUp className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Ventas & P&L</span>
+            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-black/30 text-statusGreen font-bold">
+              {closedTrades.length}
             </span>
           </button>
 
@@ -406,6 +429,18 @@ export const PortfolioColumn: React.FC<PortfolioColumnProps> = ({
                         <FileCheck2 className="w-3 h-3 text-emerald-400" />
                       </button>
                     )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedPositionForDetail(pos);
+                        setOpenSellDirectly(true);
+                      }}
+                      className="px-1.5 py-0.2 rounded text-[10px] font-bold text-statusGreen bg-statusGreen/10 hover:bg-statusGreen/25 border border-statusGreen/30 transition-colors"
+                      title={`Registrar venta o liquidación para ${pos.ticker}`}
+                    >
+                      Vender
+                    </button>
                     {hasReachedExit && (
                       <span className="text-[9px] px-1 py-0.2 rounded font-bold bg-statusGreen text-canvas flex items-center space-x-0.5 animate-pulse" title="Objetivo de salida alcanzado">
                         <Target className="w-2.5 h-2.5" />
@@ -488,8 +523,12 @@ export const PortfolioColumn: React.FC<PortfolioColumnProps> = ({
       {/* Modal de Detalle, Edición, Salida y Cierre Automático de Compra */}
       <TradeDetailModal
         isOpen={Boolean(selectedPositionForDetail)}
-        onClose={() => setSelectedPositionForDetail(null)}
+        onClose={() => {
+          setSelectedPositionForDetail(null);
+          setOpenSellDirectly(false);
+        }}
         position={selectedPositionForDetail}
+        initialOpenSell={openSellDirectly}
         onUpdateTrade={onUpdateTrade}
         onDeleteTrade={onDeleteTrade}
         onCloseTrade={onCloseTrade}
@@ -502,11 +541,13 @@ export const PortfolioColumn: React.FC<PortfolioColumnProps> = ({
         trades={trades}
         closedTrades={closedTrades}
         closedSummary={closedSummary}
+        initialTab={historyInitialTab}
         onDeleteTrade={onDeleteTrade}
         onCloseTrade={onCloseTrade}
         onReopenTrade={onReopenTrade}
         onClearAllTrades={onClearAllTrades}
         onUpdateTrade={onUpdateTrade}
+        onAddDirectClosedTrade={onAddDirectClosedTrade}
       />
     </section>
   );

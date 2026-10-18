@@ -1,6 +1,9 @@
 import express from 'express';
 import cors from 'cors';
 import compression from 'compression';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { db, initDatabase } from './db.mjs';
 import { ejecutarBarridoPilar1, obtenerValuacionTicker, auditarActivoCompleto } from './pilar1_engine.mjs';
 import { ejecutarTestCalibracion } from './test_calibracion.mjs';
@@ -19,7 +22,7 @@ syncPortfolioQuotesRealtime().catch(err => console.error('[API Startup] Error en
 let ultimoScanPilar1 = null;
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
 
 app.use(cors());
 app.use(compression());
@@ -39,7 +42,14 @@ export async function getConsolidatedPortfolio() {
   `).all();
 
   const openTrades = allTrades.filter(t => (t.status || 'OPEN') === 'OPEN');
-  const closedTrades = allTrades.filter(t => t.status === 'CLOSED');
+  const closedTrades = allTrades
+    .filter(t => t.status === 'CLOSED')
+    .sort((a, b) => {
+      const dateA = a.sell_date || a.execution_date || '';
+      const dateB = b.sell_date || b.execution_date || '';
+      if (dateA !== dateB) return dateB.localeCompare(dateA);
+      return b.id - a.id;
+    });
 
   // Obtener cotizaciones de mercado
   const quotes = db.prepare(`SELECT * FROM market_quotes`).all();
@@ -563,6 +573,83 @@ app.post('/api/portfolio/close-trade', (req, res) => {
       success: true,
       partial: false,
       trade_id: trade.id,
+      realized_pnl: realizedPnl,
+      realized_pnl_eur: pnlEur,
+      realized_roi_pct: realizedRoi
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+ 
+// 3.1b REGISTRAR VENTA HISTÓRICA DIRECTA (POSICIÓN YA CERRADA)
+app.post('/api/portfolio/direct-closed-trade', (req, res) => {
+  try {
+    const {
+      ticker,
+      company_name,
+      currency,
+      shares,
+      buy_price,
+      fees,
+      execution_date,
+      sell_price,
+      sell_date,
+      sell_fees,
+      closing_notes
+    } = req.body;
+
+    if (!ticker || !shares || !buy_price || !sell_price) {
+      return res.status(400).json({ error: 'Faltan campos obligatorios (ticker, acciones, precio compra y precio venta)' });
+    }
+
+    const cleanTicker = ticker.trim().toUpperCase();
+    const cleanCurrency = (currency || 'USD').trim().toUpperCase();
+    const sShares = parseFloat(shares);
+    const bPrice = parseFloat(buy_price);
+    const bFees = parseFloat(fees || 0);
+    const sPrice = parseFloat(sell_price);
+    const sDate = sell_date || new Date().toISOString().split('T')[0];
+    const sFees = parseFloat(sell_fees || 0);
+    const eDate = execution_date || sDate;
+
+    const fxRow = db.prepare("SELECT rate FROM fx_rates WHERE pair = 'EUR_USD'").get();
+    const eurUsdRate = fxRow ? fxRow.rate : 1.085;
+
+    const investedTotal = (sShares * bPrice) + bFees;
+    const proceedsTotal = (sShares * sPrice) - sFees;
+    const realizedPnl = Number((proceedsTotal - investedTotal).toFixed(2));
+    const realizedRoi = investedTotal > 0 ? Number(((realizedPnl / investedTotal) * 100).toFixed(2)) : 0;
+    const pnlEur = cleanCurrency === 'USD' ? Number((realizedPnl / eurUsdRate).toFixed(2)) : realizedPnl;
+
+    const stmt = db.prepare(`
+      INSERT INTO portfolio_trades (
+        ticker, company_name, currency, shares, buy_price, fees, execution_date, notes,
+        status, sell_price, sell_date, sell_fees, realized_pnl, realized_pnl_eur, realized_roi_pct, closing_notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'CLOSED', ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const result = stmt.run(
+      cleanTicker,
+      company_name || cleanTicker,
+      cleanCurrency,
+      sShares,
+      bPrice,
+      bFees,
+      eDate,
+      'Registro directo de venta histórica',
+      sPrice,
+      sDate,
+      sFees,
+      realizedPnl,
+      pnlEur,
+      realizedRoi,
+      closing_notes || ''
+    );
+
+    res.status(201).json({
+      success: true,
+      id: result.lastInsertRowid,
       realized_pnl: realizedPnl,
       realized_pnl_eur: pnlEur,
       realized_roi_pct: realizedRoi
@@ -1402,6 +1489,20 @@ app.post('/api/ai/audit-portfolio', async (req, res) => {
     res.status(500).json({ error: err.message || 'Error al generar auditoría de cartera' });
   }
 });
+
+// 17. SERVIR FRONTEND ESTÁTICO DE PRODUCCIÓN (dist) EN MODO STANDALONE
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const DIST_PATH = path.resolve(__dirname, '..', 'dist');
+
+if (fs.existsSync(DIST_PATH)) {
+  console.log(`[Production] Sirviendo interfaz de usuario compilada desde: ${DIST_PATH}`);
+  app.use(express.static(DIST_PATH));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) return next();
+    res.sendFile(path.join(DIST_PATH, 'index.html'));
+  });
+}
 
 app.listen(PORT, () => {
   console.log(`[API Server] Corriendo en http://localhost:${PORT}`);

@@ -52,10 +52,60 @@ export const WatchlistColumn: React.FC<WatchlistColumnProps> = ({
   const [isInputExpanded, setIsInputExpanded] = useState(false);
   const [isFullModalOpen, setIsFullModalOpen] = useState(false);
   const [draggingTicker, setDraggingTicker] = useState<string | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [justAddedTicker, setJustAddedTicker] = useState<string | null>(null);
+  const dragCounterRef = useRef<number>(0);
 
   // Medición dinámica del contenedor para mostrar todas las que quepan en la pantalla
   const listContainerRef = useRef<HTMLDivElement>(null);
   const [containerHeight, setContainerHeight] = useState<number>(0);
+
+  const handleDragEnter = (e: React.DragEvent<HTMLElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current += 1;
+    if (e.dataTransfer.types.includes('text/plain') || e.dataTransfer.types.includes('application/x-ticker')) {
+      setIsDragOver(true);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+    if (!isDragOver) {
+      setIsDragOver(true);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
+    if (dragCounterRef.current === 0) {
+      setIsDragOver(false);
+    }
+  };
+
+  const handleDrop = async (e: React.DragEvent<HTMLElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current = 0;
+    setIsDragOver(false);
+
+    const rawTicker =
+      e.dataTransfer.getData('application/x-ticker') ||
+      e.dataTransfer.getData('text/plain') ||
+      '';
+    const cleanTicker = rawTicker.trim().toUpperCase();
+    if (cleanTicker && /^[A-Z0-9.-]{1,10}$/.test(cleanTicker)) {
+      const ok = await onAddTicker(cleanTicker);
+      if (ok) {
+        setJustAddedTicker(cleanTicker);
+        setTimeout(() => setJustAddedTicker(null), 3500);
+      }
+    }
+  };
 
   useEffect(() => {
     const el = listContainerRef.current;
@@ -118,7 +168,40 @@ export const WatchlistColumn: React.FC<WatchlistColumnProps> = ({
   );
 
   return (
-    <div className="bg-card border border-borderSubtle rounded-2xl p-3 flex flex-col h-full max-h-full min-h-0 overflow-hidden shadow-md">
+    <div
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className={`bg-card border rounded-2xl p-3 flex flex-col h-full max-h-full min-h-0 overflow-hidden shadow-md relative transition-all ${
+        isDragOver
+          ? 'border-accentSky ring-2 ring-accentSky/50 shadow-[0_0_25px_rgba(56,189,248,0.25)]'
+          : 'border-borderSubtle'
+      }`}
+    >
+      {/* Overlay de Soltar (Drop Zone) cuando el usuario arrastra una empresa desde el Pilar Central */}
+      {isDragOver && (
+        <div className="absolute inset-2 z-50 rounded-2xl bg-slate-950/90 backdrop-blur-sm border-2 border-dashed border-accentSky flex flex-col items-center justify-center p-4 text-center pointer-events-none animate-in fade-in duration-150">
+          <div className="w-12 h-12 rounded-2xl bg-accentSky/20 border border-accentSky/40 flex items-center justify-center text-accentSky mb-2 shadow-lg">
+            <Eye className="w-6 h-6 animate-bounce" />
+          </div>
+          <p className="text-sm font-extrabold text-textPrimary tracking-tight">
+            Suelta aquí para poner en seguimiento continuo
+          </p>
+          <p className="text-[11px] text-accentSky font-medium mt-1">
+            Se registrará su cotización en vivo y se monitorizará su evolución
+          </p>
+        </div>
+      )}
+
+      {/* Notificación de adición exitosa tras arrastrar o añadir */}
+      {justAddedTicker && (
+        <div className="mb-2 px-3 py-1.5 rounded-xl bg-statusGreen/15 border border-statusGreen/40 text-statusGreen text-xs font-bold flex items-center justify-center space-x-2 animate-in fade-in slide-in-from-top-1 duration-200">
+          <Award className="w-3.5 h-3.5" />
+          <span>¡{justAddedTicker} añadida a empresas en seguimiento!</span>
+        </div>
+      )}
+
       {/* HEADER DE LA SECCIÓN DE SEGUIMIENTO */}
       <div className="pb-2.5 border-b border-borderSubtle space-y-1.5 flex-shrink-0">
         <div className="flex items-center justify-between">
@@ -218,7 +301,7 @@ export const WatchlistColumn: React.FC<WatchlistColumnProps> = ({
             <Eye className="w-6 h-6 text-textSecondary/40" />
             <p className="text-xs font-medium">No tienes empresas en seguimiento todavía.</p>
             <p className="text-[10px] text-textSecondary/70 max-w-xs">
-              Añade empresas para monitorizar su evolución de cotización y obtener su análisis técnico.
+              Arrastra cualquier compañía desde el Pilar Central hasta aquí o usa el botón Añadir para monitorizar su cotización.
             </p>
             <div className="flex space-x-1.5 pt-1">
               {['VICI', 'EG', 'LEN'].map((sug) => (
@@ -453,7 +536,7 @@ export const WatchlistColumn: React.FC<WatchlistColumnProps> = ({
 
       {/* FOOTER INFORMATIVO */}
       <div className="pt-2 border-t border-borderSubtle flex items-center justify-between text-[10px] text-textSecondary flex-shrink-0">
-        <span>Arrastra al Pilar Central · Click para técnico</span>
+        <span>Arrastra desde/hacia Pilar Central · Click para técnico</span>
         <span className="font-semibold text-accentSky">Seguimiento Activo</span>
       </div>
 

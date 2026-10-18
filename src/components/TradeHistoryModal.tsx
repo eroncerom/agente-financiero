@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   X,
   Trash2,
@@ -13,9 +13,14 @@ import {
   Edit3,
   Calculator,
   RefreshCw,
-  Target
+  Target,
+  Filter,
+  Clock,
+  Plus
 } from 'lucide-react';
 import { PortfolioTrade, ClosedSummary, Currency } from '../types';
+
+export type ClosedTradePeriod = '1Y' | 'YTD' | '6M' | 'ALL' | 'CUSTOM';
 
 interface TradeHistoryModalProps {
   isOpen: boolean;
@@ -23,6 +28,8 @@ interface TradeHistoryModalProps {
   trades: PortfolioTrade[];
   closedTrades?: PortfolioTrade[];
   closedSummary?: ClosedSummary | null;
+  initialTab?: 'OPEN' | 'CLOSED';
+  initialLiquidateTrade?: PortfolioTrade | null;
   onDeleteTrade: (id: number) => Promise<void>;
   onCloseTrade: (data: {
     id: number;
@@ -35,6 +42,19 @@ interface TradeHistoryModalProps {
   onReopenTrade: (id: number) => Promise<void>;
   onClearAllTrades: () => Promise<void>;
   onUpdateTrade: (id: number, data: Partial<PortfolioTrade>) => Promise<void>;
+  onAddDirectClosedTrade?: (data: {
+    ticker: string;
+    company_name: string;
+    currency: Currency;
+    shares: number;
+    buy_price: number;
+    fees?: number;
+    execution_date: string;
+    sell_price: number;
+    sell_date: string;
+    sell_fees?: number;
+    closing_notes?: string;
+  }) => Promise<void>;
 }
 
 export const TradeHistoryModal: React.FC<TradeHistoryModalProps> = ({
@@ -42,16 +62,66 @@ export const TradeHistoryModal: React.FC<TradeHistoryModalProps> = ({
   onClose,
   trades,
   closedTrades = [],
-  closedSummary,
+  closedSummary: _closedSummary,
+  initialTab,
+  initialLiquidateTrade,
   onDeleteTrade,
   onCloseTrade,
   onReopenTrade,
   onClearAllTrades,
-  onUpdateTrade
+  onUpdateTrade,
+  onAddDirectClosedTrade
 }) => {
-  const [activeTab, setActiveTab] = useState<'OPEN' | 'CLOSED'>('OPEN');
+  const [activeTab, setActiveTab] = useState<'OPEN' | 'CLOSED'>(() => initialTab || 'OPEN');
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [reopeningId, setReopeningId] = useState<number | null>(null);
+
+  // Filtrado temporal para el histórico cerrado (Por defecto: Último Año)
+  const [selectedPeriod, setSelectedPeriod] = useState<ClosedTradePeriod>('1Y');
+  const [customFromDate, setCustomFromDate] = useState<string>(() => {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() - 1);
+    return d.toISOString().split('T')[0];
+  });
+  const [customToDate, setCustomToDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+
+  // Modal para registro directo de ventas históricas
+  const [isDirectClosedOpen, setIsDirectClosedOpen] = useState(false);
+  const [directTicker, setDirectTicker] = useState('');
+  const [directCompanyName, setDirectCompanyName] = useState('');
+  const [directCurrency, setDirectCurrency] = useState<Currency>('EUR');
+  const [directShares, setDirectShares] = useState('');
+  const [directBuyPrice, setDirectBuyPrice] = useState('');
+  const [directBuyFees, setDirectBuyFees] = useState('0');
+  const [directBuyDate, setDirectBuyDate] = useState(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 3);
+    return d.toISOString().split('T')[0];
+  });
+  const [directSellPrice, setDirectSellPrice] = useState('');
+  const [directSellFees, setDirectSellFees] = useState('0');
+  const [directSellDate, setDirectSellDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [directNotes, setDirectNotes] = useState('');
+  const [isSavingDirect, setIsSavingDirect] = useState(false);
+  const [isLoadingDirectQuote, setIsLoadingDirectQuote] = useState(false);
+
+  useEffect(() => {
+    if (initialTab && isOpen) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab, isOpen]);
+
+  useEffect(() => {
+    if (initialLiquidateTrade && isOpen) {
+      setLiquidatingTrade(initialLiquidateTrade);
+      setSellMode('ALL');
+      setSellSharesInput(initialLiquidateTrade.shares.toString());
+      setSellPriceInput(initialLiquidateTrade.market_price ? initialLiquidateTrade.market_price.toString() : initialLiquidateTrade.buy_price.toString());
+      setSellDateInput(new Date().toISOString().split('T')[0]);
+      setSellFeesInput('0');
+      setClosingNotesInput('');
+    }
+  }, [initialLiquidateTrade, isOpen]);
   const [confirmClearAll, setConfirmClearAll] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
 
@@ -109,8 +179,6 @@ export const TradeHistoryModal: React.FC<TradeHistoryModalProps> = ({
       }
     }
   }, [editShares, editBuyPrice, editMode, editingTrade]);
-
-  if (!isOpen) return null;
 
   const handleDelete = async (id: number) => {
     try {
@@ -304,9 +372,203 @@ export const TradeHistoryModal: React.FC<TradeHistoryModalProps> = ({
   const remainingShares = totalSharesLiq - sharesLiq;
   const symLiq = liquidatingTrade?.currency === 'EUR' ? '€' : '$';
 
+  // Helper para verificar si una fecha cae en el periodo seleccionado (Por defecto: Último Año)
+  const isDateInPeriod = (dateStr?: string) => {
+    if (!dateStr) return true;
+    const tradeDate = new Date(dateStr + 'T00:00:00');
+    if (isNaN(tradeDate.getTime())) return true;
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+    if (selectedPeriod === '1Y') {
+      const oneYearAgo = new Date(today);
+      oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+      oneYearAgo.setHours(0, 0, 0, 0);
+      return tradeDate >= oneYearAgo && tradeDate <= today;
+    }
+    if (selectedPeriod === 'YTD') {
+      const startOfYear = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+      return tradeDate >= startOfYear && tradeDate <= today;
+    }
+    if (selectedPeriod === '6M') {
+      const sixMonthsAgo = new Date(today);
+      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+      sixMonthsAgo.setHours(0, 0, 0, 0);
+      return tradeDate >= sixMonthsAgo && tradeDate <= today;
+    }
+    if (selectedPeriod === 'CUSTOM') {
+      if (customFromDate) {
+        const start = new Date(customFromDate + 'T00:00:00');
+        if (tradeDate < start) return false;
+      }
+      if (customToDate) {
+        const end = new Date(customToDate + 'T23:59:59');
+        if (tradeDate > end) return false;
+      }
+      return true;
+    }
+    // 'ALL'
+    return true;
+  };
+
+  // Filtrado y ordenación cronológica inversa de posiciones cerradas
+  const filteredClosedTrades = useMemo(() => {
+    return closedTrades
+      .filter((t) => isDateInPeriod(t.sell_date || t.execution_date))
+      .sort((a, b) => {
+        const dateA = a.sell_date || a.execution_date || '';
+        const dateB = b.sell_date || b.execution_date || '';
+        if (dateA !== dateB) return dateB.localeCompare(dateA);
+        return b.id - a.id;
+      });
+  }, [closedTrades, selectedPeriod, customFromDate, customToDate]);
+
+  // Métricas financieras calculadas para el periodo seleccionado
+  const periodMetrics = useMemo(() => {
+    let totalPnlEur = 0;
+    let totalInvestedEur = 0;
+    let totalProceedsEur = 0;
+    let totalFeesEur = 0;
+    let winningCount = 0;
+    let losingCount = 0;
+
+    for (const t of filteredClosedTrades) {
+      const rateToEur = t.currency === 'USD' ? (t.realized_pnl && t.realized_pnl_eur ? t.realized_pnl_eur / t.realized_pnl : 0.92) : 1;
+      const pnlEur = t.realized_pnl_eur != null ? t.realized_pnl_eur : ((t.realized_pnl || 0) * rateToEur);
+      const investedEur = ((t.shares * t.buy_price) + (t.fees || 0)) * rateToEur;
+      const proceedsEur = ((t.shares * (t.sell_price || t.buy_price)) - (t.sell_fees || 0)) * rateToEur;
+      const feesEur = ((t.fees || 0) + (t.sell_fees || 0)) * rateToEur;
+
+      totalPnlEur += pnlEur;
+      totalInvestedEur += investedEur;
+      totalProceedsEur += proceedsEur;
+      totalFeesEur += feesEur;
+
+      if ((t.realized_pnl || 0) >= 0) {
+        winningCount++;
+      } else {
+        losingCount++;
+      }
+    }
+
+    const roiPct = totalInvestedEur > 0 ? (totalPnlEur / totalInvestedEur) * 100 : 0;
+    const totalCount = filteredClosedTrades.length;
+    const winRatePct = totalCount > 0 ? (winningCount / totalCount) * 100 : 0;
+
+    return {
+      totalPnlEur: Number(totalPnlEur.toFixed(2)),
+      totalInvestedEur: Number(totalInvestedEur.toFixed(2)),
+      totalProceedsEur: Number(totalProceedsEur.toFixed(2)),
+      totalFeesEur: Number(totalFeesEur.toFixed(2)),
+      roiPct: Number(roiPct.toFixed(2)),
+      winningCount,
+      losingCount,
+      totalCount,
+      winRatePct: Number(winRatePct.toFixed(1))
+    };
+  }, [filteredClosedTrades]);
+
+  // Cálculo de permanencia en cartera (Holding Period)
+  const calculateHoldingDays = (buyDate?: string, sellDate?: string) => {
+    if (!buyDate || !sellDate) return null;
+    const start = new Date(buyDate).getTime();
+    const end = new Date(sellDate).getTime();
+    if (isNaN(start) || isNaN(end)) return null;
+    const diffDays = Math.round((end - start) / (1000 * 60 * 60 * 24));
+    if (diffDays <= 0) return 'Mismo día';
+    if (diffDays === 1) return '1 día';
+    if (diffDays < 30) return `${diffDays} días`;
+    if (diffDays < 365) {
+      const months = Math.floor(diffDays / 30);
+      const days = diffDays % 30;
+      return `${months}m ${days}d (${diffDays}d)`;
+    }
+    const years = (diffDays / 365).toFixed(1);
+    return `${years} años (${diffDays}d)`;
+  };
+
+  const getPeriodLabel = (period: ClosedTradePeriod) => {
+    switch (period) {
+      case '1Y': return 'Último Año (12 meses)';
+      case 'YTD': return 'Año Actual (YTD)';
+      case '6M': return 'Últimos 6 Meses';
+      case 'ALL': return 'Histórico Completo';
+      case 'CUSTOM': return `Del ${customFromDate} al ${customToDate}`;
+    }
+  };
+
+  // Manejo de consulta de ticker en modal directo
+  const handleFetchDirectQuote = async () => {
+    if (!directTicker.trim()) return;
+    try {
+      setIsLoadingDirectQuote(true);
+      const res = await fetch(`/api/quote/${encodeURIComponent(directTicker.trim().toUpperCase())}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.name) setDirectCompanyName(data.name);
+        if (data.price) {
+          if (!directSellPrice) setDirectSellPrice(data.price.toString());
+          if (!directBuyPrice) setDirectBuyPrice(data.price.toString());
+          if (data.currency) setDirectCurrency(data.currency as Currency);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsLoadingDirectQuote(false);
+    }
+  };
+
+  // Guardar registro directo de venta histórica
+  const handleSaveDirectClosedTrade = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!onAddDirectClosedTrade) return;
+
+    const sharesNum = parseFloat(directShares);
+    const buyPriceNum = parseFloat(directBuyPrice);
+    const sellPriceNum = parseFloat(directSellPrice);
+    const buyFeesNum = parseFloat(directBuyFees || '0');
+    const sellFeesNum = parseFloat(directSellFees || '0');
+
+    if (!directTicker.trim() || isNaN(sharesNum) || sharesNum <= 0 || isNaN(buyPriceNum) || buyPriceNum <= 0 || isNaN(sellPriceNum) || sellPriceNum <= 0) {
+      return;
+    }
+
+    try {
+      setIsSavingDirect(true);
+      await onAddDirectClosedTrade({
+        ticker: directTicker.trim().toUpperCase(),
+        company_name: directCompanyName.trim() || directTicker.trim().toUpperCase(),
+        currency: directCurrency,
+        shares: sharesNum,
+        buy_price: buyPriceNum,
+        fees: buyFeesNum,
+        execution_date: directBuyDate,
+        sell_price: sellPriceNum,
+        sell_date: directSellDate,
+        sell_fees: sellFeesNum,
+        closing_notes: directNotes.trim() || 'Venta histórica registrada'
+      });
+      setIsDirectClosedOpen(false);
+      setDirectTicker('');
+      setDirectCompanyName('');
+      setDirectShares('');
+      setDirectBuyPrice('');
+      setDirectSellPrice('');
+      setDirectNotes('');
+    } catch (err) {
+      console.error('Error al guardar venta directa:', err);
+    } finally {
+      setIsSavingDirect(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
   return (
     <div className="fixed inset-0 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn">
-      <div className="bg-card border border-borderMedium w-full max-w-3xl rounded-2xl p-6 shadow-2xl space-y-4 max-h-[90vh] flex flex-col relative">
+      <div className="bg-card border border-borderMedium w-full max-w-4xl rounded-2xl p-6 shadow-2xl space-y-4 max-h-[92vh] flex flex-col relative">
         {/* Header */}
         <div className="flex justify-between items-center border-b border-borderSubtle pb-3">
           <div className="flex items-center space-x-2.5">
@@ -314,9 +576,9 @@ export const TradeHistoryModal: React.FC<TradeHistoryModalProps> = ({
               <History className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-textPrimary">Gestión de Compras y Operaciones</h3>
+              <h3 className="text-base font-bold text-textPrimary">Movimientos de Cartera y Registro de Ventas</h3>
               <p className="text-[11px] text-textSecondary">
-                Registros persistentes en base de datos local SQLite (`portfolio.db`)
+                Registro persistente de compras, liquidaciones y ganancias/pérdidas en base de datos local SQLite
               </p>
             </div>
           </div>
@@ -355,7 +617,7 @@ export const TradeHistoryModal: React.FC<TradeHistoryModalProps> = ({
             onClick={() => setActiveTab('OPEN')}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-2 ${
               activeTab === 'OPEN'
-                ? 'bg-accentSky/15 text-accentSky border border-accentSky/30'
+                ? 'bg-accentSky/15 text-accentSky border border-accentSky/30 shadow-sm'
                 : 'text-textSecondary hover:text-textPrimary hover:bg-cardSecondary'
             }`}
           >
@@ -369,49 +631,150 @@ export const TradeHistoryModal: React.FC<TradeHistoryModalProps> = ({
             onClick={() => setActiveTab('CLOSED')}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-2 ${
               activeTab === 'CLOSED'
-                ? 'bg-statusGreen/15 text-statusGreen border border-statusGreen/30'
+                ? 'bg-statusGreen/15 text-statusGreen border border-statusGreen/30 shadow-sm'
                 : 'text-textSecondary hover:text-textPrimary hover:bg-cardSecondary'
             }`}
           >
-            <span>Histórico de Posiciones Cerradas / Liquidadas</span>
+            <span>Histórico de Ventas y Rendimiento</span>
             <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/30 font-mono">
               {closedTrades.length}
             </span>
           </button>
         </div>
 
-        {/* Resumen de Histórico Cerrado (si estamos en pestaña CLOSED y hay datos) */}
-        {activeTab === 'CLOSED' && closedSummary && closedTrades.length > 0 && (
-          <div className="grid grid-cols-3 gap-3 p-3 rounded-xl bg-canvas border border-borderSubtle text-xs">
-            <div>
-              <span className="text-[10px] text-textSecondary uppercase font-medium block">P&L Realizado Total (€)</span>
-              <span
-                className={`text-sm font-bold font-mono ${
-                  closedSummary.total_realized_pnl_eur >= 0 ? 'text-statusGreen' : 'text-statusRed'
-                }`}
-              >
-                {closedSummary.total_realized_pnl_eur >= 0 ? '+' : ''}
-                {closedSummary.total_realized_pnl_eur.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €
-              </span>
+        {/* Panel Superior de Filtro Temporal y KPIs en Pestaña CLOSED */}
+        {activeTab === 'CLOSED' && (
+          <div className="space-y-3">
+            {/* Barra de Filtro de Periodo */}
+            <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl bg-canvas border border-borderSubtle">
+              <div className="flex items-center space-x-1.5 flex-wrap">
+                <span className="text-[11px] font-semibold text-textSecondary flex items-center space-x-1 mr-1">
+                  <Filter className="w-3.5 h-3.5 text-accentSky" />
+                  <span>Periodo:</span>
+                </span>
+
+                {[
+                  { key: '1Y', label: 'Último Año (12M)', isDefault: true },
+                  { key: 'YTD', label: 'Año en Curso (YTD)' },
+                  { key: '6M', label: 'Últimos 6M' },
+                  { key: 'ALL', label: 'Histórico Completo' },
+                  { key: 'CUSTOM', label: 'Personalizado' },
+                ].map((item) => {
+                  const isActive = selectedPeriod === item.key;
+                  return (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => setSelectedPeriod(item.key as ClosedTradePeriod)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all flex items-center space-x-1.5 ${
+                        isActive
+                          ? 'bg-statusGreen text-canvas shadow-sm font-bold'
+                          : 'bg-cardSecondary hover:bg-cardHover text-textSecondary hover:text-textPrimary border border-borderSubtle'
+                      }`}
+                    >
+                      <span>{item.label}</span>
+                      {item.isDefault && (
+                        <span className={`text-[9px] px-1 py-0.2 rounded font-mono ${isActive ? 'bg-black/20 text-canvas' : 'bg-statusGreen/15 text-statusGreen'}`}>
+                          Por defecto
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {onAddDirectClosedTrade && (
+                <button
+                  type="button"
+                  onClick={() => setIsDirectClosedOpen(true)}
+                  className="px-2.5 py-1 rounded-lg bg-accentSky/15 text-accentSky hover:bg-accentSky/25 border border-accentSky/30 transition text-xs font-bold flex items-center space-x-1 shadow-sm"
+                  title="Registrar una venta ya ejecutada en tu broker para archivarlo con fecha y P&L"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Registrar Venta Histórica</span>
+                </button>
+              )}
             </div>
-            <div>
-              <span className="text-[10px] text-textSecondary uppercase font-medium block">ROI Medio Realizado</span>
-              <span
-                className={`text-sm font-bold font-mono ${
-                  closedSummary.total_realized_roi_pct >= 0 ? 'text-statusGreen' : 'text-statusRed'
-                }`}
-              >
-                {closedSummary.total_realized_roi_pct >= 0 ? '+' : ''}
-                {closedSummary.total_realized_roi_pct.toFixed(2)}%
-              </span>
-            </div>
-            <div>
-              <span className="text-[10px] text-textSecondary uppercase font-medium block">Balance Operaciones</span>
-              <span className="text-xs font-semibold text-textPrimary">
-                <span className="text-statusGreen font-mono font-bold">{closedSummary.winning_trades_count} Ganadoras</span>
-                {' / '}
-                <span className="text-statusRed font-mono font-bold">{closedSummary.losing_trades_count} Perdedoras</span>
-              </span>
+
+            {/* Inputs de Fecha Personalizada */}
+            {selectedPeriod === 'CUSTOM' && (
+              <div className="flex items-center space-x-3 p-2.5 rounded-xl bg-cardSecondary/60 border border-borderSubtle text-xs animate-fadeIn">
+                <div className="flex items-center space-x-2">
+                  <span className="text-[11px] text-textSecondary font-medium">Desde:</span>
+                  <input
+                    type="date"
+                    value={customFromDate}
+                    onChange={(e) => setCustomFromDate(e.target.value)}
+                    className="px-2.5 py-1 bg-canvas border border-borderMedium rounded-lg text-xs text-textPrimary focus:outline-none focus:border-accentSky font-mono"
+                  />
+                </div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-[11px] text-textSecondary font-medium">Hasta:</span>
+                  <input
+                    type="date"
+                    value={customToDate}
+                    onChange={(e) => setCustomToDate(e.target.value)}
+                    className="px-2.5 py-1 bg-canvas border border-borderMedium rounded-lg text-xs text-textPrimary focus:outline-none focus:border-accentSky font-mono"
+                  />
+                </div>
+                <span className="text-[10px] text-textSecondary/70 italic">
+                  Mostrando ventas liquidadas entre ambas fechas
+                </span>
+              </div>
+            )}
+
+            {/* Resumen de KPIs Financieros del Periodo */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 p-3 rounded-xl bg-canvas border border-borderSubtle text-xs">
+              <div>
+                <span className="text-[10px] text-textSecondary uppercase font-medium block">P&L Realizado Periodo</span>
+                <span
+                  className={`text-sm font-bold font-mono flex items-center space-x-1 ${
+                    periodMetrics.totalPnlEur >= 0 ? 'text-statusGreen' : 'text-statusRed'
+                  }`}
+                >
+                  {periodMetrics.totalPnlEur >= 0 ? <TrendingUp className="w-3.5 h-3.5 inline" /> : <TrendingDown className="w-3.5 h-3.5 inline" />}
+                  <span>
+                    {periodMetrics.totalPnlEur >= 0 ? '+' : ''}
+                    {periodMetrics.totalPnlEur.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €
+                  </span>
+                </span>
+              </div>
+
+              <div>
+                <span className="text-[10px] text-textSecondary uppercase font-medium block">ROI Ponderado Periodo</span>
+                <span
+                  className={`text-sm font-bold font-mono ${
+                    periodMetrics.roiPct >= 0 ? 'text-statusGreen' : 'text-statusRed'
+                  }`}
+                >
+                  {periodMetrics.roiPct >= 0 ? '+' : ''}
+                  {periodMetrics.roiPct.toFixed(2)}%
+                </span>
+              </div>
+
+              <div>
+                <span className="text-[10px] text-textSecondary uppercase font-medium block">Tasa de Acierto (Win Rate)</span>
+                <span className="text-xs font-semibold text-textPrimary block font-mono">
+                  <span className="text-statusGreen font-bold">{periodMetrics.winningCount}G</span>
+                  {' / '}
+                  <span className="text-statusRed font-bold">{periodMetrics.losingCount}P</span>
+                  <span className="text-[10px] text-textSecondary ml-1">({periodMetrics.winRatePct}%)</span>
+                </span>
+              </div>
+
+              <div>
+                <span className="text-[10px] text-textSecondary uppercase font-medium block">Comisiones Periodo</span>
+                <span className="text-xs font-mono font-bold text-textPrimary">
+                  {periodMetrics.totalFeesEur.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €
+                </span>
+              </div>
+
+              <div>
+                <span className="text-[10px] text-textSecondary uppercase font-medium block">Capital Recuperado</span>
+                <span className="text-xs font-mono font-bold text-accentSky">
+                  {periodMetrics.totalProceedsEur.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €
+                </span>
+              </div>
             </div>
           </div>
         )}
@@ -520,21 +883,38 @@ export const TradeHistoryModal: React.FC<TradeHistoryModalProps> = ({
         {/* CONTENIDO PESTAÑA: POSICIONES CERRADAS / HISTÓRICO */}
         {activeTab === 'CLOSED' && (
           <div className="flex-1 overflow-y-auto space-y-2 pr-1 text-xs">
-            {closedTrades.length === 0 ? (
-              <div className="py-12 text-center text-textSecondary space-y-2 font-sans">
-                <p className="text-sm">No tienes operaciones liquidadas en el histórico.</p>
-                <p className="text-xs text-textSecondary/70">
-                  Cuando vendas una posición abierta, pulsa "Cerrar" para archivarla aquí con su ganancia/pérdida neta.
+            {filteredClosedTrades.length === 0 ? (
+              <div className="py-12 text-center text-textSecondary space-y-2.5 font-sans">
+                <div className="w-12 h-12 rounded-2xl bg-cardSecondary border border-borderSubtle flex items-center justify-center mx-auto text-textSecondary">
+                  <Calendar className="w-6 h-6 text-accentSky/70" />
+                </div>
+                <p className="text-sm font-semibold text-textPrimary">
+                  No hay ventas registradas en el periodo: <span className="text-accentSky">{getPeriodLabel(selectedPeriod)}</span>
                 </p>
+                <p className="text-xs text-textSecondary/70 max-w-md mx-auto">
+                  {closedTrades.length > 0
+                    ? `Tienes ${closedTrades.length} ventas en otros periodos. Prueba a seleccionar "Histórico Completo" para verlas todas.`
+                    : 'Cuando vendas una posición abierta o añadas una venta histórica con el botón superior, aparecerá registrada aquí con su ganancia/pérdida neta.'}
+                </p>
+                {closedTrades.length > 0 && selectedPeriod !== 'ALL' && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPeriod('ALL')}
+                    className="mt-1 px-3 py-1.5 rounded-lg bg-cardSecondary hover:bg-cardHover text-accentSky font-bold text-xs border border-borderSubtle transition"
+                  >
+                    Ver Todo el Histórico ({closedTrades.length} ventas)
+                  </button>
+                )}
               </div>
             ) : (
-              closedTrades.map((trade) => {
+              filteredClosedTrades.map((trade) => {
                 const cSym = trade.currency === 'EUR' ? '€' : '$';
                 const pnl = trade.realized_pnl ?? 0;
                 const roi = trade.realized_roi_pct ?? 0;
                 const isWinning = pnl >= 0;
                 const isReopening = reopeningId === trade.id;
                 const isDeleting = deletingId === trade.id;
+                const holdingDays = calculateHoldingDays(trade.execution_date, trade.sell_date);
 
                 return (
                   <div
@@ -542,7 +922,7 @@ export const TradeHistoryModal: React.FC<TradeHistoryModalProps> = ({
                     className="p-3.5 rounded-xl bg-canvas border border-borderSubtle hover:border-borderMedium flex items-center justify-between transition gap-3"
                   >
                     <div className="space-y-1.5 flex-1">
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                         <span className="text-sm font-bold text-textPrimary">{trade.ticker}</span>
                         <span className="text-[10px] px-1.5 py-0.2 rounded bg-cardSecondary text-textSecondary border border-borderSubtle font-mono">
                           {trade.currency}
@@ -550,6 +930,17 @@ export const TradeHistoryModal: React.FC<TradeHistoryModalProps> = ({
                         <span className="text-xs text-textSecondary truncate max-w-[200px]">
                           {trade.company_name}
                         </span>
+
+                        {holdingDays && (
+                          <span
+                            className="text-[10px] px-2 py-0.5 rounded-md bg-cardSecondary text-textSecondary border border-borderSubtle font-mono flex items-center space-x-1"
+                            title="Tiempo transcurrido entre la compra y la venta (Holding Period)"
+                          >
+                            <Clock className="w-3 h-3 text-accentSky" />
+                            <span>{holdingDays}</span>
+                          </span>
+                        )}
+
                         <span
                           className={`text-[10px] font-mono px-2 py-0.5 rounded-md font-bold flex items-center space-x-1 ${
                             isWinning
@@ -563,6 +954,7 @@ export const TradeHistoryModal: React.FC<TradeHistoryModalProps> = ({
                             {pnl.toFixed(2)} {cSym} ({isWinning ? '+' : ''}{roi.toFixed(2)}%)
                           </span>
                         </span>
+
                         {trade.currency === 'USD' && trade.realized_pnl_eur !== undefined && (
                           <span className="text-[10px] text-textSecondary font-mono">
                             ≈ {trade.realized_pnl_eur >= 0 ? '+' : ''}
@@ -572,7 +964,7 @@ export const TradeHistoryModal: React.FC<TradeHistoryModalProps> = ({
                       </div>
 
                       {/* Detalles de compra y venta */}
-                      <div className="flex items-center space-x-4 text-[11px] text-textSecondary font-mono">
+                      <div className="flex items-center space-x-4 text-[11px] text-textSecondary font-mono flex-wrap gap-y-1">
                         <span>
                           {trade.shares % 1 === 0 ? trade.shares : trade.shares.toFixed(4)} acc.
                         </span>
@@ -587,25 +979,30 @@ export const TradeHistoryModal: React.FC<TradeHistoryModalProps> = ({
                           <span className="text-accentSky font-bold">{cSym}{(trade.sell_price || 0).toFixed(2)}</span>
                           <span className="text-[10px] text-textSecondary/60">({trade.sell_date || '-'})</span>
                         </span>
+                        {(trade.sell_fees || 0) > 0 && (
+                          <span className="text-[10px] text-textSecondary/70">
+                            (Comisión vta: {cSym}{(trade.sell_fees || 0).toFixed(2)})
+                          </span>
+                        )}
                       </div>
 
                       {/* Notas de cierre */}
                       {(trade.closing_notes || trade.notes) && (
                         <div className="text-[10px] text-textSecondary/80 flex items-center space-x-2">
                           <FileText className="w-3 h-3 text-accentYellow flex-shrink-0" />
-                          <span className="italic truncate max-w-[450px]">
-                            {trade.closing_notes ? `Cierre: ${trade.closing_notes}` : trade.notes}
+                          <span className="italic truncate max-w-[480px]">
+                            {trade.closing_notes ? `Venta: ${trade.closing_notes}` : trade.notes}
                           </span>
                         </div>
                       )}
                     </div>
 
-                    <div className="flex items-center space-x-1.5">
+                    <div className="flex items-center space-x-1.5 flex-shrink-0">
                       {/* Botón Modificar / Editar */}
                       <button
                         onClick={() => openEditModal(trade)}
                         className="px-2 py-1.5 rounded-lg bg-cardSecondary hover:bg-cardHover text-textSecondary hover:text-textPrimary border border-borderSubtle transition text-xs font-semibold flex items-center space-x-1"
-                        title="Modificar datos de esta operación"
+                        title="Modificar fecha, precio o notas de esta operación"
                       >
                         <Edit3 className="w-3.5 h-3.5 text-accentSky" />
                         <span className="hidden sm:inline">Editar</span>
@@ -1191,6 +1588,277 @@ export const TradeHistoryModal: React.FC<TradeHistoryModalProps> = ({
                   className="px-4 py-2 rounded-xl bg-statusGreen text-black font-bold hover:bg-statusGreen/90 transition text-xs shadow-lg disabled:opacity-50"
                 >
                   {isSubmittingClose ? 'Guardando...' : 'Confirmar Liquidación'}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* SUBMODAL / DIÁLOGO DE REGISTRO DIRECTO DE VENTA HISTÓRICA */}
+        {isDirectClosedOpen && (
+          <div className="absolute inset-0 bg-black/85 backdrop-blur-md rounded-2xl flex items-center justify-center p-4 z-30 animate-fadeIn">
+            <form
+              onSubmit={handleSaveDirectClosedTrade}
+              className="bg-card border border-borderMedium w-full max-w-lg rounded-2xl p-5 shadow-2xl space-y-3.5 max-h-[90vh] overflow-y-auto"
+            >
+              <div className="flex justify-between items-center border-b border-borderSubtle pb-2.5">
+                <div>
+                  <h4 className="text-sm font-bold text-textPrimary flex items-center space-x-1.5">
+                    <Plus className="w-4 h-4 text-accentSky" />
+                    <span>Registrar Venta Histórica Directa</span>
+                  </h4>
+                  <p className="text-[11px] text-textSecondary">
+                    Guarda una operación ya cerrada en tu broker con su fecha y resultado fiscal
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsDirectClosedOpen(false)}
+                  className="text-textSecondary hover:text-textPrimary p-1 rounded-lg hover:bg-cardSecondary"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-3 text-xs">
+                {/* Ticker y Divisa */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-textSecondary mb-1">
+                      Ticker *
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={directTicker}
+                        onChange={(e) => setDirectTicker(e.target.value.toUpperCase())}
+                        required
+                        placeholder="Ej. AAPL, ASML, SAN.MC"
+                        className="w-full bg-canvas border border-borderMedium rounded-xl px-3 py-2 text-textPrimary focus:outline-none focus:border-accentSky font-mono font-bold uppercase text-xs"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleFetchDirectQuote}
+                        disabled={isLoadingDirectQuote}
+                        className="absolute right-1.5 top-1.5 p-1 rounded hover:bg-cardSecondary text-textSecondary hover:text-accentSky"
+                        title="Buscar cotización"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isLoadingDirectQuote ? 'animate-spin text-accentSky' : ''}`} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-textSecondary mb-1">
+                      Divisa *
+                    </label>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setDirectCurrency('EUR')}
+                        className={`py-1.5 rounded-lg font-bold border transition text-xs ${
+                          directCurrency === 'EUR'
+                            ? 'bg-accentSky/20 border-accentSky text-accentSky shadow-sm'
+                            : 'bg-canvas border-borderSubtle text-textSecondary'
+                        }`}
+                      >
+                        EUR (€)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDirectCurrency('USD')}
+                        className={`py-1.5 rounded-lg font-bold border transition text-xs ${
+                          directCurrency === 'USD'
+                            ? 'bg-accentSky/20 border-accentSky text-accentSky shadow-sm'
+                            : 'bg-canvas border-borderSubtle text-textSecondary'
+                        }`}
+                      >
+                        USD ($)
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Nombre de la Empresa y Acciones */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-textSecondary mb-1">
+                      Nombre de Empresa
+                    </label>
+                    <input
+                      type="text"
+                      value={directCompanyName}
+                      onChange={(e) => setDirectCompanyName(e.target.value)}
+                      placeholder="Ej. Apple Inc."
+                      className="w-full bg-canvas border border-borderMedium rounded-xl px-3 py-2 text-textPrimary focus:outline-none focus:border-accentSky text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-textSecondary mb-1">
+                      Nº Acciones *
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0.0001"
+                      required
+                      value={directShares}
+                      onChange={(e) => setDirectShares(e.target.value)}
+                      placeholder="Ej. 10"
+                      className="w-full bg-canvas border border-borderMedium rounded-xl px-3 py-2 text-textPrimary focus:outline-none focus:border-accentSky font-mono text-xs"
+                    />
+                  </div>
+                </div>
+
+                {/* Datos de Compra */}
+                <div className="p-3 rounded-xl bg-canvas border border-borderSubtle space-y-2.5">
+                  <span className="text-[10px] font-bold text-textSecondary uppercase tracking-wider block">
+                    1. Datos de la Compra Original
+                  </span>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="block text-[10px] text-textSecondary mb-0.5">Precio Compra ({directCurrency === 'EUR' ? '€' : '$'}) *</label>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0.01"
+                        required
+                        value={directBuyPrice}
+                        onChange={(e) => setDirectBuyPrice(e.target.value)}
+                        placeholder="0.00"
+                        className="w-full bg-card border border-borderMedium rounded-lg px-2.5 py-1.5 text-textPrimary font-mono text-xs focus:outline-none focus:border-accentSky"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-textSecondary mb-0.5">Fecha Compra *</label>
+                      <input
+                        type="date"
+                        required
+                        value={directBuyDate}
+                        onChange={(e) => setDirectBuyDate(e.target.value)}
+                        className="w-full bg-card border border-borderMedium rounded-lg px-2.5 py-1.5 text-textPrimary font-mono text-xs focus:outline-none focus:border-accentSky"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-textSecondary mb-0.5">Comisión Compra</label>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        value={directBuyFees}
+                        onChange={(e) => setDirectBuyFees(e.target.value)}
+                        className="w-full bg-card border border-borderMedium rounded-lg px-2.5 py-1.5 text-textPrimary font-mono text-xs focus:outline-none focus:border-accentSky"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Datos de Venta */}
+                <div className="p-3 rounded-xl bg-canvas border border-borderSubtle space-y-2.5">
+                  <span className="text-[10px] font-bold text-statusGreen uppercase tracking-wider block">
+                    2. Datos de la Venta / Liquidación
+                  </span>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="block text-[10px] text-textSecondary mb-0.5">Precio Venta ({directCurrency === 'EUR' ? '€' : '$'}) *</label>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0.01"
+                        required
+                        value={directSellPrice}
+                        onChange={(e) => setDirectSellPrice(e.target.value)}
+                        placeholder="0.00"
+                        className="w-full bg-card border border-borderMedium rounded-lg px-2.5 py-1.5 text-textPrimary font-mono text-xs focus:outline-none focus:border-statusGreen"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-textSecondary mb-0.5">Fecha Venta *</label>
+                      <input
+                        type="date"
+                        required
+                        value={directSellDate}
+                        onChange={(e) => setDirectSellDate(e.target.value)}
+                        className="w-full bg-card border border-borderMedium rounded-lg px-2.5 py-1.5 text-textPrimary font-mono text-xs focus:outline-none focus:border-statusGreen"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-textSecondary mb-0.5">Comisión Venta</label>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        value={directSellFees}
+                        onChange={(e) => setDirectSellFees(e.target.value)}
+                        className="w-full bg-card border border-borderMedium rounded-lg px-2.5 py-1.5 text-textPrimary font-mono text-xs focus:outline-none focus:border-statusGreen"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Notas */}
+                <div>
+                  <label className="block text-[11px] font-semibold text-textSecondary mb-1">
+                    Notas o Motivo de la Venta
+                  </label>
+                  <input
+                    type="text"
+                    value={directNotes}
+                    onChange={(e) => setDirectNotes(e.target.value)}
+                    placeholder="Ej. Venta en Trade Republic tras alcanzar objetivo..."
+                    className="w-full bg-canvas border border-borderMedium rounded-xl px-3 py-2 text-textPrimary focus:outline-none focus:border-accentSky text-xs"
+                  />
+                </div>
+
+                {/* Previsualización del Resultado Financiero */}
+                {(() => {
+                  const s = parseFloat(directShares) || 0;
+                  const bp = parseFloat(directBuyPrice) || 0;
+                  const bf = parseFloat(directBuyFees) || 0;
+                  const sp = parseFloat(directSellPrice) || 0;
+                  const sf = parseFloat(directSellFees) || 0;
+                  const totalCost = (s * bp) + bf;
+                  const grossProceeds = (s * sp) - sf;
+                  const netProfit = grossProceeds - totalCost;
+                  const roi = totalCost > 0 ? (netProfit / totalCost) * 100 : 0;
+                  const curSym = directCurrency === 'EUR' ? '€' : '$';
+
+                  return (
+                    <div className="p-3 rounded-xl bg-canvas border border-borderSubtle grid grid-cols-3 gap-2 text-center text-xs font-mono">
+                      <div>
+                        <span className="text-[10px] text-textSecondary block">Coste Compra</span>
+                        <span className="font-bold text-textPrimary">{curSym}{totalCost.toFixed(2)}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-textSecondary block">Importe Venta</span>
+                        <span className="font-bold text-accentSky">{curSym}{grossProceeds.toFixed(2)}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-textSecondary block">P&L Neto</span>
+                        <span className={`font-bold ${netProfit >= 0 ? 'text-statusGreen' : 'text-statusRed'}`}>
+                          {netProfit >= 0 ? '+' : ''}{curSym}{netProfit.toFixed(2)} ({netProfit >= 0 ? '+' : ''}{roi.toFixed(1)}%)
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Botones */}
+              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-borderSubtle">
+                <button
+                  type="button"
+                  onClick={() => setIsDirectClosedOpen(false)}
+                  className="px-3 py-2 rounded-xl bg-cardSecondary text-textSecondary hover:text-textPrimary transition text-xs font-semibold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingDirect || !directTicker.trim() || !parseFloat(directShares) || !parseFloat(directBuyPrice) || !parseFloat(directSellPrice)}
+                  className="px-4 py-2 rounded-xl bg-statusGreen text-black font-bold hover:bg-statusGreen/90 transition text-xs shadow-lg disabled:opacity-50"
+                >
+                  {isSavingDirect ? 'Guardando...' : 'Guardar Venta en el Histórico'}
                 </button>
               </div>
             </form>

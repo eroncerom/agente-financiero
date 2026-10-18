@@ -157,9 +157,9 @@ export function initDatabase() {
     insertWatch.run('LEN', 'Lennar Corporation', 'USD', 76.37, 151.17, 'Cíclica de calidad cotizando bajo Techo MoS');
   }
 
-  // Seed default seed positions if empty
+  // Seed default seed positions only if explicitly requested via SEED_DEMO_DATA=true
   const countTrades = db.prepare('SELECT COUNT(*) as count FROM portfolio_trades').get().count;
-  if (countTrades === 0) {
+  if (countTrades === 0 && process.env.SEED_DEMO_DATA === 'true') {
     const insertTrade = db.prepare(`
       INSERT INTO portfolio_trades (ticker, company_name, currency, shares, buy_price, fees, execution_date, notes)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)

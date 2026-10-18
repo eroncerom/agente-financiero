@@ -18,7 +18,8 @@ import {
   X,
   Scale,
   BarChart3,
-  CandlestickChart
+  CandlestickChart,
+  GripVertical
 } from 'lucide-react';
 import { Pilar1Result, Pilar1ScanResponse, DiscardedCompanyDetail } from '../types';
 import { DiscardedDetailModal } from './DiscardedDetailModal';
@@ -189,6 +190,47 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
     if (cleanTicker && /^[A-Z0-9.-]{1,10}$/.test(cleanTicker) && onAuditInCentralPillar) {
       onAuditInCentralPillar(cleanTicker);
     }
+  };
+
+  const handleCompanyDragStart = (
+    e: React.DragEvent<HTMLElement>,
+    comp: {
+      ticker: string;
+      nombre?: string;
+      company_name?: string;
+      precio_cierre_P0?: number;
+      price?: number;
+      current_price?: number;
+      currency?: string;
+      fair_value_teorico?: number;
+      fairValue?: number;
+      escalera_mos?: any;
+      escenario_neutro?: any;
+    }
+  ) => {
+    const cleanTicker = (comp.ticker || '').trim().toUpperCase();
+    if (!cleanTicker) return;
+    const name = comp.nombre || comp.company_name || cleanTicker;
+    const price = comp.precio_cierre_P0 || comp.price || comp.current_price || 0;
+    const currency = comp.currency || 'USD';
+    const fairValue = comp.fair_value_teorico || comp.fairValue || comp.escenario_neutro?.VP_teorico || comp.escalera_mos?.fair_value || 0;
+
+    e.dataTransfer.setData('text/plain', cleanTicker);
+    e.dataTransfer.setData('application/x-ticker', cleanTicker);
+    e.dataTransfer.setData('application/x-company-name', name);
+    e.dataTransfer.setData('application/x-current-price', String(price));
+    e.dataTransfer.setData('application/x-currency', currency);
+    if (fairValue > 0) {
+      e.dataTransfer.setData('application/x-fair-value', String(fairValue));
+    }
+    e.dataTransfer.setData('application/x-item-json', JSON.stringify({
+      ticker: cleanTicker,
+      company_name: name,
+      current_price: price,
+      currency,
+      fair_value: fairValue
+    }));
+    e.dataTransfer.effectAllowed = 'copyMove';
   };
 
   const handleOpenDiscardedDetail = (item: DiscardedCompanyDetail) => {
@@ -531,6 +573,8 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
             return (
               <button
                 key={comp.ticker}
+                draggable={true}
+                onDragStart={(e) => handleCompanyDragStart(e, comp)}
                 onClick={() => {
                   if (isActive) {
                     handleOpenDiscardedDetail(comp as unknown as DiscardedCompanyDetail);
@@ -539,12 +583,12 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
                     setViewMode('company');
                   }
                 }}
-                className={`flex items-center space-x-1.5 px-3 py-1 text-xs font-bold rounded-lg transition font-mono ${
+                className={`flex items-center space-x-1.5 px-3 py-1 text-xs font-bold rounded-lg transition font-mono cursor-grab active:cursor-grabbing ${
                   isActive
                     ? 'bg-accentSky text-canvas shadow-md'
                     : 'text-textSecondary hover:text-textPrimary hover:bg-cardSecondary'
                 }`}
-                title={isActive ? `Clic para abrir auditoría de ${comp.ticker}` : `Seleccionar ${comp.ticker}`}
+                title={isActive ? `Arrastra a Seguimiento · Clic para abrir auditoría de ${comp.ticker}` : `Arrastra a Seguimiento · Clic para seleccionar ${comp.ticker}`}
               >
                 <span>{comp.ticker}</span>
                 {fv && (
@@ -614,9 +658,11 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
               <div className="flex items-center space-x-1 bg-accentSky/15 text-accentSky border border-accentSky/30 px-2 py-0.5 rounded-lg text-xs font-mono font-bold">
                 <button
                   type="button"
+                  draggable={true}
+                  onDragStart={(e) => handleCompanyDragStart(e, selectedCompany)}
                   onClick={() => setViewMode('company')}
-                  className="hover:underline flex items-center space-x-1"
-                  title={`Ver auditoría de ${selectedCompany.nombre}`}
+                  className="hover:underline flex items-center space-x-1 cursor-grab active:cursor-grabbing"
+                  title={`Arrastra a Seguimiento · Clic para ver auditoría de ${selectedCompany.nombre}`}
                 >
                   <span>{selectedCompany.ticker}</span>
                   {selectedCompany.quality_tier && (
@@ -655,6 +701,8 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
               {scanData.diagnostico_pedagogico.descartadas_trampa_valor.map((tItem) => (
                 <button
                   key={tItem.ticker}
+                  draggable={true}
+                  onDragStart={(e) => handleCompanyDragStart(e, tItem)}
                   onClick={() => {
                     if (onAuditInCentralPillar) {
                       onAuditInCentralPillar(tItem.ticker);
@@ -662,8 +710,8 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
                       handleOpenDiscardedDetail(tItem);
                     }
                   }}
-                  className="px-1.5 py-0.5 text-[10px] font-mono font-bold rounded bg-statusRed/10 text-statusRed hover:bg-statusRed/20 border border-statusRed/30 transition flex items-center space-x-1"
-                  title={`Cargar ${tItem.ticker} en Pilar Central`}
+                  className="px-1.5 py-0.5 text-[10px] font-mono font-bold rounded bg-statusRed/10 text-statusRed hover:bg-statusRed/20 border border-statusRed/30 transition flex items-center space-x-1 cursor-grab active:cursor-grabbing"
+                  title={`Arrastra a Seguimiento · Clic para cargar ${tItem.ticker} en Pilar Central`}
                 >
                   <span>{tItem.ticker}</span>
                   <span className="text-[9px]">(-{tItem.caida_desde_maximo_52w_pct}%)</span>
@@ -740,9 +788,11 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
                 {scanData.diagnostico_pedagogico.descartadas_trampa_valor.map((item) => (
                   <div
                     key={item.ticker}
+                    draggable={true}
+                    onDragStart={(e) => handleCompanyDragStart(e, item)}
                     onClick={() => handleOpenDiscardedDetail(item)}
-                    className="p-2.5 rounded-lg bg-canvas border border-statusRed/30 hover:border-statusRed hover:bg-cardSecondary flex items-center justify-between cursor-pointer transition group shadow-sm"
-                    title="Haz clic para auditar el Escenario de Estrés y los riesgos de disrupción"
+                    className="p-2.5 rounded-lg bg-canvas border border-statusRed/30 hover:border-statusRed hover:bg-cardSecondary flex items-center justify-between cursor-grab active:cursor-grabbing transition group shadow-sm"
+                    title="Arrastra a Seguimiento · Clic para auditar el Escenario de Estrés y riesgos"
                   >
                     <div>
                       <div className="flex items-center space-x-1.5">
@@ -791,9 +841,11 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
                 {scanData.diagnostico_pedagogico.descartadas_techo_r.map((item) => (
                   <div
                     key={item.ticker}
+                    draggable={true}
+                    onDragStart={(e) => handleCompanyDragStart(e, item)}
                     onClick={() => handleOpenDiscardedDetail(item)}
-                    className="p-2 rounded-lg bg-canvas border border-borderSubtle hover:border-accentYellow/70 hover:bg-cardSecondary text-xs flex items-center justify-between font-mono cursor-pointer transition group shadow-sm"
-                    title="Haz clic para ver el desglose completo del cálculo, riesgos y recomendaciones"
+                    className="p-2 rounded-lg bg-canvas border border-borderSubtle hover:border-accentYellow/70 hover:bg-cardSecondary text-xs flex items-center justify-between font-mono cursor-grab active:cursor-grabbing transition group shadow-sm"
+                    title="Arrastra a Seguimiento · Clic para ver desglose completo de cálculo y riesgos"
                   >
                     <div>
                       <div className="flex items-center space-x-1.5">
@@ -860,6 +912,8 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
                 {scanData.diagnostico_pedagogico.en_zona_valor_justo.slice(0, 8).map((item) => (
                   <div
                     key={item.ticker}
+                    draggable={true}
+                    onDragStart={(e) => handleCompanyDragStart(e, item)}
                     onClick={() => {
                       if (onAuditInCentralPillar) {
                         onAuditInCentralPillar(item.ticker);
@@ -867,8 +921,8 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
                         handleOpenDiscardedDetail(item);
                       }
                     }}
-                    className="p-2 rounded-lg bg-canvas border border-accentSky/30 hover:border-accentSky hover:bg-cardSecondary flex items-center justify-between cursor-pointer transition group shadow-sm"
-                    title="Haz clic para cargar y auditar en el Pilar Central"
+                    className="p-2 rounded-lg bg-canvas border border-accentSky/30 hover:border-accentSky hover:bg-cardSecondary flex items-center justify-between cursor-grab active:cursor-grabbing transition group shadow-sm"
+                    title="Arrastra a Seguimiento · Clic para auditar en el Pilar Central"
                   >
                     <div>
                       <div className="flex items-center space-x-1.5">
@@ -915,6 +969,8 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
                 {scanData.diagnostico_pedagogico.no_calificadas_precio.slice(0, 6).map((item) => (
                   <div
                     key={item.ticker}
+                    draggable={true}
+                    onDragStart={(e) => handleCompanyDragStart(e, item)}
                     onClick={() => {
                       if (onAuditInCentralPillar) {
                         onAuditInCentralPillar(item.ticker);
@@ -922,8 +978,8 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
                         handleOpenDiscardedDetail(item);
                       }
                     }}
-                    className="p-2 rounded-lg bg-canvas border border-borderSubtle hover:border-statusRed/70 hover:bg-cardSecondary flex items-center justify-between cursor-pointer transition group shadow-sm"
-                    title="Haz clic para cargar y auditar en el Pilar Central"
+                    className="p-2 rounded-lg bg-canvas border border-borderSubtle hover:border-statusRed/70 hover:bg-cardSecondary flex items-center justify-between cursor-grab active:cursor-grabbing transition group shadow-sm"
+                    title="Arrastra a Seguimiento · Clic para auditar en el Pilar Central"
                   >
                     <div>
                       <div className="flex items-center space-x-1.5">
@@ -963,12 +1019,15 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
         <div ref={detailScrollRef} className="flex-1 flex flex-col justify-start overflow-y-auto space-y-2.5 min-h-0 pr-0.5">
           {/* Tarjeta Ejecutiva Principal */}
           <div
+            draggable={true}
+            onDragStart={(e) => handleCompanyDragStart(e, selectedCompany)}
             onClick={() => handleOpenDiscardedDetail(selectedCompany as unknown as DiscardedCompanyDetail)}
-            className="p-3.5 rounded-2xl bg-gradient-to-r from-cardSecondary to-card border border-borderMedium flex items-center justify-between shadow-sm cursor-pointer hover:border-accentSky/60 hover:shadow-lg transition group"
-            title="Haz clic para abrir la auditoría completa, análisis de riesgos y recomendaciones"
+            className="p-3.5 rounded-2xl bg-gradient-to-r from-cardSecondary to-card border border-borderMedium flex items-center justify-between shadow-sm cursor-grab active:cursor-grabbing hover:border-accentSky/60 hover:shadow-lg transition group"
+            title="Arrastra para poner en seguimiento (margen derecho) o a Mis Compras · Clic para ver auditoría completa"
           >
             <div>
               <div className="flex items-center space-x-2.5">
+                <GripVertical className="w-4 h-4 text-textSecondary/40 group-hover:text-accentSky/80 transition-colors shrink-0 -ml-1" />
                 <span className="text-xl font-black text-textPrimary group-hover:text-accentSky transition">
                   {selectedCompany.nombre}
                 </span>
@@ -1433,9 +1492,11 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
         <div className="flex items-center space-x-2">
           {selectedCompany && onAddToWatchlist && (
             <button
+              draggable={true}
+              onDragStart={(e) => handleCompanyDragStart(e, selectedCompany)}
               onClick={() => onAddToWatchlist(selectedCompany.ticker)}
-              className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-cardSecondary hover:bg-cardHover text-textPrimary border border-borderSubtle font-bold text-xs shadow-sm transition"
-              title={`Poner ${selectedCompany.ticker} en seguimiento continuo`}
+              className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-cardSecondary hover:bg-cardHover text-textPrimary border border-borderSubtle font-bold text-xs shadow-sm transition cursor-grab active:cursor-grabbing"
+              title={`Clic o arrastra al margen derecho para poner ${selectedCompany.ticker} en seguimiento continuo`}
             >
               <Eye className="w-4 h-4 text-accentSky" />
               <span>Seguir {selectedCompany.ticker}</span>

@@ -316,6 +316,21 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleAddDirectClosedTrade = async (data: any) => {
+    try {
+      const res = await fetch('/api/portfolio/direct-closed-trade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      if (res.ok) {
+        await fetchPortfolio();
+      }
+    } catch (err) {
+      console.error('Error al registrar venta histórica directa:', err);
+    }
+  };
+
   const handleReopenTrade = async (id: number) => {
     try {
       const res = await fetch('/api/portfolio/reopen-trade', {
@@ -737,6 +752,7 @@ export const App: React.FC = () => {
             isRefreshing={isLoadingPortfolio}
             onOpenFinancialDeepDive={handleOpenFinancialDeepDive}
             onOpenBuyTradeWithCompany={handleOpenAddTradeWithCompany}
+            onAddDirectClosedTrade={handleAddDirectClosedTrade}
           />
         </div>
 
@@ -763,12 +779,30 @@ export const App: React.FC = () => {
         </div>
 
         {/* Margen Derecho: Empresas en Seguimiento (Watchlist) & Entorno Macro (28% ancho = 3 col) */}
-        <div className="col-span-3 h-full min-h-0 max-h-full overflow-hidden flex flex-col space-y-2">
+        <div
+          onDragOver={(e) => {
+            if (e.dataTransfer.types.includes('text/plain') || e.dataTransfer.types.includes('application/x-ticker')) {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'copy';
+              if (rightPanelTab !== 'watchlist') {
+                setRightPanelTab('watchlist');
+              }
+            }
+          }}
+          className="col-span-3 h-full min-h-0 max-h-full overflow-hidden flex flex-col space-y-2"
+        >
           {/* Selector de Pestañas Superior del Margen Derecho */}
           <div className="flex bg-card p-1 rounded-xl border border-borderSubtle text-xs flex-shrink-0">
             <button
               type="button"
               onClick={() => setRightPanelTab('watchlist')}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+                if (rightPanelTab !== 'watchlist') {
+                  setRightPanelTab('watchlist');
+                }
+              }}
               className={`flex-1 py-1.5 px-2 rounded-lg font-bold flex items-center justify-center space-x-1.5 transition-all ${
                 rightPanelTab === 'watchlist'
                   ? 'bg-accentSky/20 text-accentSky border border-accentSky/30 shadow-sm'
