@@ -9,6 +9,7 @@ build/
 dist-package/
 app_package.zip
 *.zip
+!Agente-Financiero-Setup-v1.0.0.zip
 
 # Bases de datos y archivos de sesión local (privacidad del inversor)
 *.sqlite
