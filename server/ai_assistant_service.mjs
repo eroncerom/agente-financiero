@@ -1,7 +1,64 @@
 import { db } from './db.mjs';
 
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+const OPENAI_API_BASE = 'https://api.openai.com/v1';
+const ANTHROPIC_API_BASE = 'https://api.anthropic.com/v1';
+
+export const SUPPORTED_PROVIDERS = {
+  gemini: {
+    id: 'gemini',
+    name: 'Google Gemini',
+    defaultModel: 'gemini-2.5-flash',
+    keyPrefixes: ['AIzaSy'],
+    models: [
+      { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash (Recomendado)', tier: 'Flash' },
+      { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash (Low)', tier: 'Flash' },
+      { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', tier: 'Flash' },
+      { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash (Estable)', tier: 'Flash' }
+    ]
+  },
+  openai: {
+    id: 'openai',
+    name: 'OpenAI',
+    defaultModel: 'gpt-4o-mini',
+    keyPrefixes: ['sk-'],
+    models: [
+      { id: 'gpt-4o-mini', name: 'GPT-4o Mini (Ultrarrápido y económico)', tier: 'Mini' },
+      { id: 'gpt-4.1-mini', name: 'GPT-4.1 Mini', tier: 'Mini' },
+      { id: 'gpt-4o', name: 'GPT-4o (Avanzado)', tier: 'Flagship' }
+    ]
+  },
+  anthropic: {
+    id: 'anthropic',
+    name: 'Anthropic Claude',
+    defaultModel: 'claude-3-5-haiku-latest',
+    keyPrefixes: ['sk-ant-'],
+    models: [
+      { id: 'claude-3-5-haiku-latest', name: 'Claude 3.5 Haiku (Ultrarrápido y preciso)', tier: 'Haiku' },
+      { id: 'claude-3-7-sonnet-latest', name: 'Claude 3.7 Sonnet (Razonamiento profundo)', tier: 'Sonnet' }
+    ]
+  }
+};
+
 const DEFAULT_MODEL = 'gemini-2.5-flash';
+
+/**
+ * Detecta automáticamente el proveedor según el prefijo de la clave o el modelo
+ */
+export function detectProvider(apiKey = '', model = '') {
+  const cleanKey = (apiKey || '').trim();
+  const cleanModel = (model || '').trim().toLowerCase();
+
+  if (cleanKey.startsWith('sk-ant-')) return 'anthropic';
+  if (cleanKey.startsWith('sk-')) return 'openai';
+  if (cleanKey.startsWith('AIzaSy')) return 'gemini';
+
+  if (cleanModel.startsWith('claude')) return 'anthropic';
+  if (cleanModel.startsWith('gpt-')) return 'openai';
+  if (cleanModel.startsWith('gemini')) return 'gemini';
+
+  return 'gemini';
+}
 
 /**
  * Obtiene la configuración actual de la IA (SQLite o process.env)
@@ -9,15 +66,19 @@ const DEFAULT_MODEL = 'gemini-2.5-flash';
 export function getAIConfig() {
   let dbKey = null;
   let dbModel = null;
+  let dbProvider = null;
   try {
-    const rowKey = db.prepare("SELECT value FROM app_settings WHERE key = 'gemini_api_key'").get();
+    const rowKey = db.prepare("SELECT value FROM app_settings WHERE key = 'ai_api_key' OR key = 'gemini_api_key' ORDER BY CASE WHEN key = 'ai_api_key' THEN 1 ELSE 2 END").get();
     if (rowKey?.value) dbKey = rowKey.value.trim();
-    const rowModel = db.prepare("SELECT value FROM app_settings WHERE key = 'gemini_model'").get();
+    const rowModel = db.prepare("SELECT value FROM app_settings WHERE key = 'ai_model' OR key = 'gemini_model' ORDER BY CASE WHEN key = 'ai_model' THEN 1 ELSE 2 END").get();
     if (rowModel?.value) dbModel = rowModel.value.trim();
+    const rowProvider = db.prepare("SELECT value FROM app_settings WHERE key = 'ai_provider'").get();
+    if (rowProvider?.value) dbProvider = rowProvider.value.trim();
   } catch {}
 
-  const apiKey = dbKey || process.env.GEMINI_API_KEY || null;
-  const model = dbModel || process.env.GEMINI_MODEL || DEFAULT_MODEL;
+  const apiKey = dbKey || process.env.AI_API_KEY || process.env.GEMINI_API_KEY || null;
+  const model = dbModel || process.env.AI_MODEL || process.env.GEMINI_MODEL || DEFAULT_MODEL;
+  const provider = dbProvider || (apiKey ? detectProvider(apiKey, model) : 'local');
 
   let maskedKey = null;
   if (apiKey && apiKey.length > 8) {
@@ -29,22 +90,92 @@ export function getAIConfig() {
     api_key: apiKey,
     masked_key: maskedKey,
     model: model,
-    provider: apiKey ? 'gemini' : 'local'
+    provider: apiKey ? provider : 'local',
+    available_providers: SUPPORTED_PROVIDERS
   };
 }
 
 /**
- * Prueba la validez de una API key de Gemini llamando a un endpoint mínimo
+ * Prueba la validez de una API key con el proveedor correspondiente
  */
-export async function testGeminiConnection(apiKey, model = DEFAULT_MODEL) {
+export async function testAIConnection(apiKey, model, provider) {
   if (!apiKey || apiKey.trim().length < 8) {
     return { ok: false, error: 'La API Key proporcionada parece incompleta o vacía.' };
   }
 
   const cleanKey = apiKey.trim();
-  const cleanModel = model || DEFAULT_MODEL;
-  const url = `${GEMINI_API_BASE}/${cleanModel}:generateContent?key=${encodeURIComponent(cleanKey)}`;
+  const prov = provider || detectProvider(cleanKey, model);
+  const cleanModel = model || SUPPORTED_PROVIDERS[prov]?.defaultModel || DEFAULT_MODEL;
 
+  if (prov === 'openai') {
+    try {
+      const res = await fetch(`${OPENAI_API_BASE}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${cleanKey}`
+        },
+        body: JSON.stringify({
+          model: cleanModel,
+          messages: [{ role: 'user', content: 'Responde únicamente con la palabra OK.' }],
+          max_tokens: 10,
+          temperature: 0.1
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const text = data?.choices?.[0]?.message?.content || '';
+        return { ok: true, provider: 'openai', model: cleanModel, sample: text.trim() };
+      } else {
+        let errDetail = 'Error de autenticación con OpenAI';
+        try {
+          const errJson = await res.json();
+          errDetail = errJson.error?.message || errDetail;
+        } catch {}
+        return { ok: false, provider: 'openai', status: res.status, error: errDetail };
+      }
+    } catch (err) {
+      return { ok: false, provider: 'openai', error: `Error de red al conectar con OpenAI: ${err.message}` };
+    }
+  }
+
+  if (prov === 'anthropic') {
+    try {
+      const res = await fetch(`${ANTHROPIC_API_BASE}/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': cleanKey,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: cleanModel,
+          max_tokens: 10,
+          temperature: 0.1,
+          messages: [{ role: 'user', content: 'Responde únicamente con la palabra OK.' }]
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const text = data?.content?.[0]?.text || '';
+        return { ok: true, provider: 'anthropic', model: cleanModel, sample: text.trim() };
+      } else {
+        let errDetail = 'Error de autenticación con Anthropic';
+        try {
+          const errJson = await res.json();
+          errDetail = errJson.error?.message || errDetail;
+        } catch {}
+        return { ok: false, provider: 'anthropic', status: res.status, error: errDetail };
+      }
+    } catch (err) {
+      return { ok: false, provider: 'anthropic', error: `Error de red al conectar con Claude/Anthropic: ${err.message}` };
+    }
+  }
+
+  // Por defecto: Google Gemini
+  const url = `${GEMINI_API_BASE}/${cleanModel}:generateContent?key=${encodeURIComponent(cleanKey)}`;
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -67,37 +198,54 @@ export async function testGeminiConnection(apiKey, model = DEFAULT_MODEL) {
     if (res.ok) {
       const data = await res.json();
       const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      return { ok: true, model: cleanModel, sample: text.trim() };
+      return { ok: true, provider: 'gemini', model: cleanModel, sample: text.trim() };
     } else {
-      let errDetail = 'Error de autenticación';
+      let errDetail = 'Error de autenticación con Google Gemini';
       try {
         const errJson = await res.json();
         errDetail = errJson.error?.message || errDetail;
       } catch {}
-      return { ok: false, status: res.status, error: errDetail };
+      return { ok: false, provider: 'gemini', status: res.status, error: errDetail };
     }
   } catch (err) {
-    return { ok: false, error: `Error de red al conectar con Gemini: ${err.message}` };
+    return { ok: false, provider: 'gemini', error: `Error de red al conectar con Gemini: ${err.message}` };
   }
+}
+
+/**
+ * Compatible retroactivamente con testGeminiConnection
+ */
+export async function testGeminiConnection(apiKey, model = DEFAULT_MODEL, provider) {
+  return testAIConnection(apiKey, model, provider);
 }
 
 /**
  * Guarda la configuración de la IA en la base de datos local SQLite
  */
-export async function saveAIConfig({ apiKey, model }) {
-  const cleanModel = (model || DEFAULT_MODEL).trim();
+export async function saveAIConfig({ apiKey, model, provider }) {
+  const currentConfig = getAIConfig();
+  const effectiveKey = (apiKey && apiKey.trim().length > 0) ? apiKey.trim() : currentConfig.api_key;
+  const determinedProvider = provider || (effectiveKey ? detectProvider(effectiveKey, model) : 'gemini');
+  const cleanModel = (model || SUPPORTED_PROVIDERS[determinedProvider]?.defaultModel || DEFAULT_MODEL).trim();
 
   // Si se pasa una clave nueva, verificarla antes de guardar
   if (apiKey && apiKey.trim().length > 0) {
     const cleanKey = apiKey.trim();
-    const testResult = await testGeminiConnection(cleanKey, cleanModel);
+    const testResult = await testAIConnection(cleanKey, cleanModel, determinedProvider);
     if (!testResult.ok) {
       return {
         success: false,
-        error: `La clave de Gemini no es válida: ${testResult.error}`
+        error: `La clave de ${SUPPORTED_PROVIDERS[determinedProvider]?.name || 'IA'} no es válida: ${testResult.error}`
       };
     }
 
+    db.prepare(`
+      INSERT INTO app_settings (key, value, updated_at)
+      VALUES ('ai_api_key', ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+    `).run(cleanKey);
+
+    // Guardar también en gemini_api_key para retrocompatibilidad
     db.prepare(`
       INSERT INTO app_settings (key, value, updated_at)
       VALUES ('gemini_api_key', ?, CURRENT_TIMESTAMP)
@@ -105,6 +253,19 @@ export async function saveAIConfig({ apiKey, model }) {
     `).run(cleanKey);
   }
 
+  db.prepare(`
+    INSERT INTO app_settings (key, value, updated_at)
+    VALUES ('ai_model', ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+  `).run(cleanModel);
+
+  db.prepare(`
+    INSERT INTO app_settings (key, value, updated_at)
+    VALUES ('ai_provider', ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+  `).run(determinedProvider);
+
+  // Retrocompatibilidad
   db.prepare(`
     INSERT INTO app_settings (key, value, updated_at)
     VALUES ('gemini_model', ?, CURRENT_TIMESTAMP)
@@ -122,7 +283,7 @@ export async function saveAIConfig({ apiKey, model }) {
  */
 export function removeAIKey() {
   try {
-    db.prepare("DELETE FROM app_settings WHERE key = 'gemini_api_key'").run();
+    db.prepare("DELETE FROM app_settings WHERE key IN ('ai_api_key', 'gemini_api_key', 'ai_provider')").run();
   } catch {}
   return { success: true, config: getAIConfig() };
 }
@@ -650,68 +811,171 @@ Actualmente **NO tienes acciones de ${comp.nombre} (${comp.ticker})** en cartera
 }
 
 /**
- * Endpoint de Consulta al Asistente IA (Soporte Dual: Gemini API + Motor Local)
+ * Endpoint de Consulta al Asistente IA (Soporte Multi-Proveedor: Gemini, OpenAI, Claude + Motor Local)
  */
 export async function handleAIChatQuery({ message, history = [], context = {} }) {
   const config = getAIConfig();
 
-  // Si el usuario configuró una clave de Gemini válida, llamamos a la API de Google Gemini
   if (config.has_api_key && config.api_key) {
-    try {
-      const systemInstruction = buildSystemPrompt(context);
-      const url = `${GEMINI_API_BASE}/${config.model}:generateContent?key=${encodeURIComponent(config.api_key)}`;
+    const prov = config.provider || detectProvider(config.api_key, config.model);
+    const systemInstruction = buildSystemPrompt(context);
 
-      // Formatear historial de chat para Gemini
-      const formattedContents = [];
-      const pastMessages = (history || []).slice(-8); // Últimos 8 turnos
-      for (const turn of pastMessages) {
-        if (turn.role === 'user' || turn.role === 'assistant') {
-          formattedContents.push({
-            role: turn.role === 'assistant' ? 'model' : 'user',
-            parts: [{ text: turn.content }]
-          });
-        }
-      }
+    // 1. OPENAI (GPT-4o Mini, GPT-4o, etc.)
+    if (prov === 'openai') {
+      try {
+        const messagesPayload = [
+          { role: 'system', content: systemInstruction }
+        ];
 
-      // Añadir el mensaje actual
-      formattedContents.push({
-        role: 'user',
-        parts: [{ text: message }]
-      });
-
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemInstruction: {
-            parts: [{ text: systemInstruction }]
-          },
-          contents: formattedContents,
-          generationConfig: {
-            temperature: 0.2,
-            maxOutputTokens: 8192,
-            topP: 0.95,
-            thinkingConfig: { thinkingBudget: 0 }
+        const pastMessages = (history || []).slice(-8);
+        for (const turn of pastMessages) {
+          if (turn.role === 'user' || turn.role === 'assistant') {
+            messagesPayload.push({
+              role: turn.role === 'assistant' ? 'assistant' : 'user',
+              content: turn.content
+            });
           }
-        })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (reply && reply.trim().length > 0) {
-          return {
-            reply: reply.trim(),
-            provider: 'gemini',
-            model: config.model,
-            timestamp: new Date().toISOString()
-          };
         }
-      } else {
-        console.warn('[AIAssistant] Error en llamada a Gemini API:', response.status);
+        messagesPayload.push({ role: 'user', content: message });
+
+        const response = await fetch(`${OPENAI_API_BASE}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${config.api_key}`
+          },
+          body: JSON.stringify({
+            model: config.model,
+            messages: messagesPayload,
+            temperature: 0.2,
+            max_tokens: 4096
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const reply = data?.choices?.[0]?.message?.content;
+          if (reply && reply.trim().length > 0) {
+            return {
+              reply: reply.trim(),
+              provider: 'openai',
+              model: config.model,
+              timestamp: new Date().toISOString()
+            };
+          }
+        } else {
+          console.warn('[AIAssistant] Error en llamada a OpenAI:', response.status);
+        }
+      } catch (err) {
+        console.warn('[AIAssistant] Excepción en llamada a OpenAI:', err.message);
       }
-    } catch (err) {
-      console.warn('[AIAssistant] Excepción en llamada a Gemini:', err.message);
+    }
+
+    // 2. ANTHROPIC CLAUDE (Claude 3.5 Haiku, Claude 3.7 Sonnet)
+    else if (prov === 'anthropic') {
+      try {
+        const messagesPayload = [];
+        const pastMessages = (history || []).slice(-8);
+        for (const turn of pastMessages) {
+          if (turn.role === 'user' || turn.role === 'assistant') {
+            messagesPayload.push({
+              role: turn.role === 'assistant' ? 'assistant' : 'user',
+              content: turn.content
+            });
+          }
+        }
+        messagesPayload.push({ role: 'user', content: message });
+
+        const response = await fetch(`${ANTHROPIC_API_BASE}/messages`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': config.api_key,
+            'anthropic-version': '2023-06-01'
+          },
+          body: JSON.stringify({
+            model: config.model,
+            system: systemInstruction,
+            messages: messagesPayload,
+            max_tokens: 4096,
+            temperature: 0.2
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const reply = data?.content?.[0]?.text;
+          if (reply && reply.trim().length > 0) {
+            return {
+              reply: reply.trim(),
+              provider: 'anthropic',
+              model: config.model,
+              timestamp: new Date().toISOString()
+            };
+          }
+        } else {
+          console.warn('[AIAssistant] Error en llamada a Anthropic Claude:', response.status);
+        }
+      } catch (err) {
+        console.warn('[AIAssistant] Excepción en llamada a Anthropic Claude:', err.message);
+      }
+    }
+
+    // 3. GOOGLE GEMINI (Gemini 2.5 Flash, etc.)
+    else {
+      try {
+        const url = `${GEMINI_API_BASE}/${config.model}:generateContent?key=${encodeURIComponent(config.api_key)}`;
+
+        const formattedContents = [];
+        const pastMessages = (history || []).slice(-8);
+        for (const turn of pastMessages) {
+          if (turn.role === 'user' || turn.role === 'assistant') {
+            formattedContents.push({
+              role: turn.role === 'assistant' ? 'model' : 'user',
+              parts: [{ text: turn.content }]
+            });
+          }
+        }
+
+        formattedContents.push({
+          role: 'user',
+          parts: [{ text: message }]
+        });
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            systemInstruction: {
+              parts: [{ text: systemInstruction }]
+            },
+            contents: formattedContents,
+            generationConfig: {
+              temperature: 0.2,
+              maxOutputTokens: 8192,
+              topP: 0.95,
+              thinkingConfig: { thinkingBudget: 0 }
+            }
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (reply && reply.trim().length > 0) {
+            return {
+              reply: reply.trim(),
+              provider: 'gemini',
+              model: config.model,
+              timestamp: new Date().toISOString()
+            };
+          }
+        } else {
+          console.warn('[AIAssistant] Error en llamada a Gemini API:', response.status);
+        }
+      } catch (err) {
+        console.warn('[AIAssistant] Excepción en llamada a Gemini:', err.message);
+      }
     }
   }
 

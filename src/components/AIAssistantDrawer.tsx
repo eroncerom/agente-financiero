@@ -31,15 +31,76 @@ interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
-  provider?: 'gemini' | 'local';
+  provider?: 'gemini' | 'openai' | 'anthropic' | 'local';
   model?: string;
 }
+
+export type AIProviderId = 'gemini' | 'openai' | 'anthropic' | 'local';
+
+interface AIModelOption {
+  id: string;
+  name: string;
+  tier?: string;
+}
+
+interface AIProviderInfo {
+  id: AIProviderId;
+  name: string;
+  defaultModel: string;
+  keyPrefix: string;
+  helpUrl: string;
+  helpLabel: string;
+  models: AIModelOption[];
+}
+
+export const PROVIDERS_CATALOG: Record<'gemini' | 'openai' | 'anthropic', AIProviderInfo> = {
+  gemini: {
+    id: 'gemini',
+    name: 'Google Gemini',
+    defaultModel: 'gemini-2.5-flash',
+    keyPrefix: 'AIzaSy...',
+    helpUrl: 'https://aistudio.google.com/app/apikey',
+    helpLabel: 'Obtener API Key gratis en Google AI Studio',
+    models: [
+      { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash (Recomendado)', tier: 'Flash' },
+      { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash (Low)', tier: 'Flash' },
+      { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', tier: 'Flash' },
+      { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash (Estable)', tier: 'Flash' }
+    ]
+  },
+  openai: {
+    id: 'openai',
+    name: 'OpenAI',
+    defaultModel: 'gpt-4o-mini',
+    keyPrefix: 'sk-proj-... / sk-...',
+    helpUrl: 'https://platform.openai.com/api-keys',
+    helpLabel: 'Obtener API Key en OpenAI Platform',
+    models: [
+      { id: 'gpt-4o-mini', name: 'GPT-4o Mini (Ultrarrápido y económico)', tier: 'Mini' },
+      { id: 'gpt-4.1-mini', name: 'GPT-4.1 Mini', tier: 'Mini' },
+      { id: 'gpt-4o', name: 'GPT-4o (Avanzado)', tier: 'Flagship' }
+    ]
+  },
+  anthropic: {
+    id: 'anthropic',
+    name: 'Anthropic Claude',
+    defaultModel: 'claude-3-5-haiku-latest',
+    keyPrefix: 'sk-ant-api03-...',
+    helpUrl: 'https://console.anthropic.com/settings/keys',
+    helpLabel: 'Obtener API Key en Anthropic Console',
+    models: [
+      { id: 'claude-3-5-haiku-latest', name: 'Claude 3.5 Haiku (Ultrarrápido y preciso)', tier: 'Haiku' },
+      { id: 'claude-3-7-sonnet-latest', name: 'Claude 3.7 Sonnet (Razonamiento profundo)', tier: 'Sonnet' }
+    ]
+  }
+};
 
 interface AIConfig {
   has_api_key: boolean;
   masked_key: string | null;
   model: string;
-  provider: 'gemini' | 'local';
+  provider: AIProviderId;
+  available_providers?: Record<string, any>;
 }
 
 /**
@@ -258,6 +319,7 @@ export const AIAssistantDrawer: React.FC<AIAssistantDrawerProps> = ({
     model: 'gemini-2.5-flash',
     provider: 'local'
   });
+  const [selectedProvider, setSelectedProvider] = useState<AIProviderId>('gemini');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash');
@@ -274,6 +336,9 @@ export const AIAssistantDrawer: React.FC<AIAssistantDrawerProps> = ({
       if (res.ok) {
         const data: AIConfig = await res.json();
         setConfig(data);
+        if (data.provider && data.provider !== 'local') {
+          setSelectedProvider(data.provider);
+        }
         setSelectedModel(data.model || 'gemini-2.5-flash');
       }
     } catch (err) {
@@ -393,7 +458,7 @@ Estoy sincronizado en tiempo real con **${selectedCompany.nombre} (${selectedCom
     }
   };
 
-  // Guardar configuración de Gemini
+  // Guardar configuración de IA (Multi-proveedor)
   const handleSaveConfig = async () => {
     setTestStatus({ testing: true });
     try {
@@ -402,12 +467,16 @@ Estoy sincronizado en tiempo real con **${selectedCompany.nombre} (${selectedCom
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           apiKey: apiKeyInput,
-          model: selectedModel
+          model: selectedModel,
+          provider: selectedProvider
         })
       });
       const data = await res.json();
       if (data.success) {
         setConfig(data.config);
+        if (data.config?.provider && data.config.provider !== 'local') {
+          setSelectedProvider(data.config.provider);
+        }
         setApiKeyInput('');
         setTestStatus({ testing: false, ok: true, result: 'Conexión verificada y guardada correctamente.' });
         setTimeout(() => setIsSettingsOpen(false), 1200);
@@ -506,7 +575,9 @@ Estoy sincronizado en tiempo real con **${selectedCompany.nombre} (${selectedCom
                 {config.has_api_key ? (
                   <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center space-x-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    <span>Gemini ({config.model.replace('gemini-', '')})</span>
+                    <span>
+                      {config.provider === 'openai' ? 'OpenAI' : config.provider === 'anthropic' ? 'Claude' : 'Gemini'} ({config.model.replace('gemini-', '').replace('claude-', '').replace('gpt-', '')})
+                    </span>
                   </span>
                 ) : (
                   <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-accentSky/15 text-accentSky border border-accentSky/30 flex items-center space-x-1">
@@ -561,50 +632,102 @@ Estoy sincronizado en tiempo real con **${selectedCompany.nombre} (${selectedCom
           </div>
         </div>
 
-        {/* 2. Panel Desplegable de Ajustes de Gemini API */}
+        {/* 2. Panel Desplegable de Ajustes Multi-Proveedor IA */}
         {isSettingsOpen && (
           <div className="p-3.5 bg-cardSecondary border-b border-borderMedium text-xs animate-fadeIn space-y-3 flex-shrink-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-1.5 font-bold text-textPrimary">
                 <Key className="w-3.5 h-3.5 text-accentSky" />
-                <span>Gestión de Google Gemini API</span>
+                <span>Configuración de Modelos IA & API Keys</span>
               </div>
-              <span className="text-[10px] text-textSecondary">
-                Estado: {config.has_api_key ? '✅ Conectado' : '⚡ Motor Local'}
+              <span className="text-[10px] text-textSecondary font-medium">
+                Estado: {config.has_api_key ? `✅ Conectado (${PROVIDERS_CATALOG[selectedProvider as 'gemini' | 'openai' | 'anthropic']?.name || 'IA'})` : '⚡ Motor Cuantitativo Local'}
               </span>
             </div>
 
             <p className="text-[11px] text-textSecondary leading-relaxed">
-              Puedes conectar tu propia clave gratuita de <strong>Google AI Studio</strong> para activar razonamiento conversacional completo. Si no tienes clave, el asistente opera al 100% mediante el <strong>Motor Cuantitativo Local</strong>.
+              Conecta tu clave de <strong>Google AI Studio</strong>, <strong>OpenAI</strong> o <strong>Anthropic Claude</strong> para activar análisis conversacional en vivo. Si no tienes clave, el asistente opera al 100% mediante el <strong>Motor Cuantitativo Local</strong>.
             </p>
 
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold text-textSecondary uppercase tracking-wider block">
-                API Key de Gemini {config.masked_key && `(Actual: ${config.masked_key})`}
+            {/* Selector de Proveedor */}
+            <div>
+              <label className="text-[10px] font-bold text-textSecondary uppercase tracking-wider block mb-1">
+                Proveedor de IA
               </label>
+              <div className="grid grid-cols-3 gap-1.5">
+                {(['gemini', 'openai', 'anthropic'] as const).map((provId) => {
+                  const prov = PROVIDERS_CATALOG[provId];
+                  const isSelected = selectedProvider === provId;
+                  return (
+                    <button
+                      key={provId}
+                      type="button"
+                      onClick={() => {
+                        setSelectedProvider(provId);
+                        setSelectedModel(prov.defaultModel);
+                      }}
+                      className={`h-7 px-2 rounded-lg text-xs font-semibold flex items-center justify-center transition border ${
+                        isSelected
+                          ? 'bg-accentSky/15 text-accentSky border-accentSky/40 font-bold'
+                          : 'bg-canvas text-textSecondary border-borderSubtle hover:text-textPrimary hover:border-borderMedium'
+                      }`}
+                    >
+                      {prov.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Input de API Key */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-bold text-textSecondary uppercase tracking-wider block">
+                  API Key de {PROVIDERS_CATALOG[selectedProvider as 'gemini' | 'openai' | 'anthropic']?.name} {config.masked_key && config.provider === selectedProvider && `(Actual: ${config.masked_key})`}
+                </label>
+                <span className="text-[9px] text-textSecondary/70 font-mono">
+                  Formato: {PROVIDERS_CATALOG[selectedProvider as 'gemini' | 'openai' | 'anthropic']?.keyPrefix}
+                </span>
+              </div>
               <input
                 type="password"
                 value={apiKeyInput}
-                onChange={(e) => setApiKeyInput(e.target.value)}
-                placeholder={config.has_api_key ? 'Introduce nueva clave para reemplazar...' : 'Pega tu clave AIzaSy...'}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setApiKeyInput(val);
+                  // Auto-detección inteligente del proveedor al pegar la clave
+                  if (val.startsWith('sk-ant-')) {
+                    setSelectedProvider('anthropic');
+                    setSelectedModel(PROVIDERS_CATALOG.anthropic.defaultModel);
+                  } else if (val.startsWith('sk-')) {
+                    setSelectedProvider('openai');
+                    setSelectedModel(PROVIDERS_CATALOG.openai.defaultModel);
+                  } else if (val.startsWith('AIzaSy')) {
+                    setSelectedProvider('gemini');
+                    setSelectedModel(PROVIDERS_CATALOG.gemini.defaultModel);
+                  }
+                }}
+                placeholder={config.has_api_key && config.provider === selectedProvider ? 'Introduce nueva clave para reemplazar...' : `Pega tu clave ${PROVIDERS_CATALOG[selectedProvider as 'gemini' | 'openai' | 'anthropic']?.keyPrefix}`}
                 className="w-full h-8 px-3 rounded-lg bg-canvas border border-borderSubtle text-xs text-textPrimary placeholder:text-textSecondary/50 font-mono focus:outline-none focus:border-accentSky"
               />
             </div>
 
+            {/* Selector de Modelo y Acciones */}
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-[10px] font-bold text-textSecondary uppercase tracking-wider block mb-1">
-                  Modelo Gemini
+                  Modelo {PROVIDERS_CATALOG[selectedProvider as 'gemini' | 'openai' | 'anthropic']?.name}
                 </label>
                 <select
                   value={selectedModel}
                   onChange={(e) => setSelectedModel(e.target.value)}
                   className="w-full h-8 px-2 rounded-lg bg-canvas border border-borderSubtle text-xs text-textPrimary font-mono focus:outline-none focus:border-accentSky"
                 >
-                  <option value="gemini-2.5-flash">gemini-2.5-flash (Por defecto)</option>
-                  <option value="gemini-3.8-flash">Gemini 3.8 Flash (Low)</option>
-                  <option value="gemini-2.0-flash">gemini-2.0-flash</option>
-                  <option value="gemini-1.5-flash">gemini-1.5-flash (Estable)</option>
+                  {(PROVIDERS_CATALOG[selectedProvider as 'gemini' | 'openai' | 'anthropic']?.models || []).map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -639,12 +762,12 @@ Estoy sincronizado en tiempo real con **${selectedCompany.nombre} (${selectedCom
 
             <div className="pt-1 flex items-center justify-between text-[10px] text-textSecondary border-t border-borderSubtle/60">
               <a
-                href="https://aistudio.google.com/app/apikey"
+                href={PROVIDERS_CATALOG[selectedProvider as 'gemini' | 'openai' | 'anthropic']?.helpUrl}
                 target="_blank"
                 rel="noreferrer"
                 className="text-accentSky hover:underline flex items-center space-x-1"
               >
-                <span>Obtener API Key gratis en Google AI Studio</span>
+                <span>{PROVIDERS_CATALOG[selectedProvider as 'gemini' | 'openai' | 'anthropic']?.helpLabel}</span>
                 <ExternalLink className="w-3 h-3" />
               </a>
               <button
@@ -721,7 +844,15 @@ Estoy sincronizado en tiempo real con **${selectedCompany.nombre} (${selectedCom
                     <>
                       <SimpleMarkdown content={msg.content} />
                       <div className="mt-2 pt-1.5 border-t border-borderSubtle/50 flex items-center justify-between text-[10px] text-textSecondary/70 font-mono">
-                        <span>{msg.provider === 'gemini' ? `Gemini (${msg.model || '2.5-flash'})` : 'Motor Local Cuantitativo'}</span>
+                        <span>
+                          {msg.provider === 'openai'
+                            ? `OpenAI (${msg.model || 'gpt-4o-mini'})`
+                            : msg.provider === 'anthropic'
+                            ? `Claude (${msg.model || 'claude-3-5-haiku'})`
+                            : msg.provider === 'gemini'
+                            ? `Gemini (${msg.model || '2.5-flash'})`
+                            : 'Motor Local Cuantitativo'}
+                        </span>
                         <span>{msg.timestamp}</span>
                       </div>
                     </>

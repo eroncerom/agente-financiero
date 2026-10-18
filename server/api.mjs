@@ -12,7 +12,7 @@ import { MARKETS_CONFIG, scanMarketWithLiveQuotes, syncMarketQuotesInRealtime } 
 import { computeRayDalioMacroState, computeSovereignComparison, computePortfolioDalioQuadrants } from './dalio_macro_engine.mjs';
 import { generarAnalisisTecnico } from './technical_analysis.mjs';
 import { buildCompanyFinancialDeepDive, getCompanyOperationalMomentum } from './financial_history_service.mjs';
-import { handleAIChatQuery, getAIConfig, saveAIConfig, removeAIKey, testGeminiConnection, generatePortfolioAuditReport } from './ai_assistant_service.mjs';
+import { handleAIChatQuery, getAIConfig, saveAIConfig, removeAIKey, testGeminiConnection, testAIConnection, generatePortfolioAuditReport } from './ai_assistant_service.mjs';
 
 initDatabase();
 
@@ -1353,8 +1353,8 @@ app.get('/api/ai/config', (req, res) => {
 
 app.post('/api/ai/config', async (req, res) => {
   try {
-    const { apiKey, model } = req.body || {};
-    const result = await saveAIConfig({ apiKey, model });
+    const { apiKey, model, provider } = req.body || {};
+    const result = await saveAIConfig({ apiKey, model, provider });
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1371,8 +1371,8 @@ app.delete('/api/ai/config', (req, res) => {
 
 app.post('/api/ai/test-key', async (req, res) => {
   try {
-    const { apiKey, model } = req.body || {};
-    const result = await testGeminiConnection(apiKey, model);
+    const { apiKey, model, provider } = req.body || {};
+    const result = await testAIConnection(apiKey, model, provider);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
