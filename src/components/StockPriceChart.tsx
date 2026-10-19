@@ -513,12 +513,12 @@ export const StockPriceChart: React.FC<StockPriceChartProps> = ({
             </linearGradient>
           </defs>
 
-          {/* Cuadrícula horizontal sutil */}
-          <line x1={padLeft} y1={padTop} x2={width - padRight} y2={padTop} stroke="#334155" strokeDasharray="3 4" strokeOpacity="0.35" />
-          <line x1={padLeft} y1={padTop + chartHeight * 0.25} x2={width - padRight} y2={padTop + chartHeight * 0.25} stroke="#334155" strokeDasharray="2 4" strokeOpacity="0.2" />
-          <line x1={padLeft} y1={padTop + chartHeight * 0.5} x2={width - padRight} y2={padTop + chartHeight * 0.5} stroke="#334155" strokeDasharray="3 4" strokeOpacity="0.35" />
-          <line x1={padLeft} y1={padTop + chartHeight * 0.75} x2={width - padRight} y2={padTop + chartHeight * 0.75} stroke="#334155" strokeDasharray="2 4" strokeOpacity="0.2" />
-          <line x1={padLeft} y1={padTop + chartHeight} x2={width - padRight} y2={padTop + chartHeight} stroke="#334155" strokeDasharray="3 4" strokeOpacity="0.35" />
+          {/* Cuadrícula horizontal sutil adaptada al tema activo */}
+          <line x1={padLeft} y1={padTop} x2={width - padRight} y2={padTop} stroke="var(--svg-grid)" strokeDasharray="3 4" strokeOpacity="0.8" />
+          <line x1={padLeft} y1={padTop + chartHeight * 0.25} x2={width - padRight} y2={padTop + chartHeight * 0.25} stroke="var(--svg-grid)" strokeDasharray="2 4" strokeOpacity="0.5" />
+          <line x1={padLeft} y1={padTop + chartHeight * 0.5} x2={width - padRight} y2={padTop + chartHeight * 0.5} stroke="var(--svg-grid)" strokeDasharray="3 4" strokeOpacity="0.8" />
+          <line x1={padLeft} y1={padTop + chartHeight * 0.75} x2={width - padRight} y2={padTop + chartHeight * 0.75} stroke="var(--svg-grid)" strokeDasharray="2 4" strokeOpacity="0.5" />
+          <line x1={padLeft} y1={padTop + chartHeight} x2={width - padRight} y2={padTop + chartHeight} stroke="var(--svg-grid)" strokeDasharray="3 4" strokeOpacity="0.8" />
 
           {/* MODO LÍNEA */}
           {chartMode === 'line' && (
@@ -777,15 +777,15 @@ export const StockPriceChart: React.FC<StockPriceChartProps> = ({
                       width={tipWidth}
                       height={tipHeight}
                       rx={7}
-                      fill="#0B132B"
-                      stroke="#38BDF8"
+                      fill="var(--svg-tooltip-bg)"
+                      stroke="var(--svg-tooltip-border)"
                       strokeWidth="1.2"
-                      filter="drop-shadow(0 6px 12px rgba(0,0,0,0.6))"
+                      filter="drop-shadow(0 6px 12px rgba(0,0,0,0.18))"
                     />
-                    <text x={tipX + tipWidth / 2} y={tipY + 15} textAnchor="middle" fill="#94A3B8" fontSize={isLargeModal ? '10' : '9'} fontFamily="sans-serif">
+                    <text x={tipX + tipWidth / 2} y={tipY + 15} textAnchor="middle" fill="var(--color-text-secondary, #94A3B8)" fontSize={isLargeModal ? '10' : '9'} fontFamily="sans-serif">
                       {activeHoverPoint.date_str}
                     </text>
-                    <text x={tipX + tipWidth / 2} y={tipY + 32} textAnchor="middle" fill="#F8FAFC" fontSize={isLargeModal ? '13' : '11'} fontFamily="monospace" fontWeight="bold">
+                    <text x={tipX + tipWidth / 2} y={tipY + 32} textAnchor="middle" fill="var(--svg-tooltip-text)" fontSize={isLargeModal ? '13' : '11'} fontFamily="monospace" fontWeight="bold">
                       {sym}{activeHoverPoint.price.toFixed(2)}
                     </text>
                     {activeHoverPoint.open != null && (
@@ -801,7 +801,7 @@ export const StockPriceChart: React.FC<StockPriceChartProps> = ({
 
           {/* Marcas de Fecha en el Eje X */}
           {points.length > 2 && (
-            <g fill="#64748B" fontSize={isLargeModal ? '11' : '9'} fontFamily="monospace">
+            <g fill="var(--color-text-secondary, #64748B)" fontSize={isLargeModal ? '11' : '9'} fontFamily="monospace">
               <text x={padLeft} y={height - 8} textAnchor="start">
                 {points[0].date_str}
               </text>

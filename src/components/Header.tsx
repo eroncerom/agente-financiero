@@ -11,7 +11,9 @@ import {
   Sparkles,
   ChevronDown,
   Check,
-  Zap
+  Zap,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { MacroRegime, MarketIndex } from '../types';
 import { SearchAssetItem } from './AssetSearchModal';
@@ -29,6 +31,8 @@ interface HeaderProps {
   autoRefreshInterval: number;
   onChangeAutoRefreshInterval: (interval: number) => void;
   isLiveSyncing: boolean;
+  theme: 'dark' | 'light';
+  onToggleTheme: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -43,7 +47,9 @@ export const Header: React.FC<HeaderProps> = ({
   onSelectMarket,
   autoRefreshInterval,
   onChangeAutoRefreshInterval,
-  isLiveSyncing
+  isLiveSyncing,
+  theme,
+  onToggleTheme
 }) => {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchAssetItem[]>([]);
@@ -462,10 +468,30 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </div>
 
+        {/* Conmutador de Modo Día / Noche */}
+        <button
+          type="button"
+          onClick={onToggleTheme}
+          className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-cardSecondary hover:bg-cardHover text-textSecondary hover:text-textPrimary border border-borderSubtle transition cursor-pointer"
+          title={theme === 'dark' ? 'Cambiar a Modo Día (Fondo Blanco)' : 'Cambiar a Modo Noche (Fondo Oscuro)'}
+        >
+          {theme === 'dark' ? (
+            <>
+              <Sun className="w-3.5 h-3.5 text-accentYellow" />
+              <span className="text-[11px] font-semibold">Modo Día</span>
+            </>
+          ) : (
+            <>
+              <Moon className="w-3.5 h-3.5 text-accentSky" />
+              <span className="text-[11px] font-semibold">Modo Noche</span>
+            </>
+          )}
+        </button>
+
         {/* Botón de Refresco Rápido */}
         <button
           onClick={onRefresh}
-          className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-cardSecondary hover:bg-cardHover text-textSecondary hover:text-accentSky border border-borderSubtle transition"
+          className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-cardSecondary hover:bg-cardHover text-textSecondary hover:text-accentSky border border-borderSubtle transition cursor-pointer"
           title="Refrescar datos locales"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-accentSky' : ''}`} />

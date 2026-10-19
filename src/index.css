@@ -2,6 +2,60 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  /* MODO NOCHE (POR DEFECTO - 100% INTACTO) */
+  --color-canvas: 11 14 20;            /* #0B0E14 */
+  --color-card: 18 24 36;              /* #121824 */
+  --color-card-secondary: 22 31 48;    /* #161F30 */
+  --color-card-hover: 26 38 61;        /* #1A263D */
+  --color-border-subtle: 30 41 59;     /* #1E293B */
+  --color-border-medium: 34 49 78;     /* #22314E */
+  --color-text-primary: 248 250 252;   /* #F8FAFC */
+  --color-text-secondary: 148 163 184; /* #94A3B8 */
+  --color-accent-sky: 56 189 248;      /* #38BDF8 */
+  --color-accent-yellow: 250 204 21;   /* #FACC15 */
+  --color-status-green: 16 185 129;    /* #10B981 */
+  --color-status-red: 239 68 68;       /* #EF4444 */
+  --color-status-neutral: 255 255 255; /* #FFFFFF */
+
+  --scrollbar-track: #0B0E14;
+  --scrollbar-thumb: #22314E;
+  --scrollbar-thumb-hover: #38BDF8;
+
+  --svg-grid: #334155;
+  --svg-subtle: #1E293B;
+  --svg-tooltip-bg: #0B132B;
+  --svg-tooltip-border: #38BDF8;
+  --svg-tooltip-text: #F8FAFC;
+}
+
+.theme-light {
+  /* MODO DÍA (EDITORIAL FINANCIERO - FONDO CLARO CON CONTRASTE ALTO) */
+  --color-canvas: 241 245 249;          /* #F1F5F9 - Gris perla suave de fondo */
+  --color-card: 255 255 255;            /* #FFFFFF - Tarjetas blancas nítidas */
+  --color-card-secondary: 248 250 252;  /* #F8FAFC - Sub-tarjetas, cabeceras e inputs */
+  --color-card-hover: 226 232 240;      /* #E2E8F0 - Hover sutil */
+  --color-border-subtle: 226 232 240;   /* #E2E8F0 - Bordes suaves */
+  --color-border-medium: 203 213 225;   /* #CBD5E1 - Bordes destacados */
+  --color-text-primary: 15 23 42;       /* #0F172A - Tipografía Slate 900 de alto contraste */
+  --color-text-secondary: 71 85 105;    /* #475569 - Slate 600 perfectamente legible */
+  --color-accent-sky: 2 132 199;        /* #0284C7 - Sky 600 institucional */
+  --color-accent-yellow: 180 83 9;      /* #B45309 - Ámbar 700 legible sobre blanco */
+  --color-status-green: 5 150 105;      /* #059669 - Emerald 600 institucional */
+  --color-status-red: 220 38 38;        /* #DC2626 - Red 600 nítido */
+  --color-status-neutral: 15 23 42;     /* #0F172A - Neutro oscuro */
+
+  --scrollbar-track: #F1F5F9;
+  --scrollbar-thumb: #CBD5E1;
+  --scrollbar-thumb-hover: #0284C7;
+
+  --svg-grid: #E2E8F0;
+  --svg-subtle: #E2E8F0;
+  --svg-tooltip-bg: #FFFFFF;
+  --svg-tooltip-border: #0284C7;
+  --svg-tooltip-text: #0F172A;
+}
+
 @layer base {
   html, body, #root {
     height: 100%;
@@ -20,22 +74,69 @@
 }
 
 ::-webkit-scrollbar-track {
-  background: #0B0E14;
+  background: var(--scrollbar-track);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #22314E;
+  background: var(--scrollbar-thumb);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #38BDF8;
+  background: var(--scrollbar-thumb-hover);
 }
 
 .glow-yellow {
   box-shadow: 0 0 16px rgba(250, 204, 21, 0.25);
 }
 
+.theme-light .glow-yellow {
+  box-shadow: 0 2px 8px rgba(180, 83, 9, 0.15);
+}
+
 .glow-blue {
   box-shadow: 0 0 16px rgba(56, 189, 248, 0.2);
 }
+
+.theme-light .glow-blue {
+  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.15);
+}
+
+/* Adaptaciones automáticas de contraste en Modo Día para elementos con clases fijas de paleta oscura */
+.theme-light .text-emerald-300 {
+  color: #047857 !important; /* Emerald 700 */
+}
+.theme-light .text-emerald-400 {
+  color: #059669 !important; /* Emerald 600 */
+}
+.theme-light .text-amber-300 {
+  color: #B45309 !important; /* Amber 700 */
+}
+.theme-light .text-amber-400 {
+  color: #D97706 !important; /* Amber 600 */
+}
+.theme-light .text-yellow-300 {
+  color: #A16207 !important; /* Yellow 700 */
+}
+.theme-light .text-cyan-300 {
+  color: #0E7490 !important; /* Cyan 700 */
+}
+.theme-light .text-rose-400 {
+  color: #E11D48 !important; /* Rose 600 */
+}
+.theme-light .text-slate-300 {
+  color: #334155 !important; /* Slate 700 */
+}
+.theme-light .text-slate-400 {
+  color: #475569 !important; /* Slate 600 */
+}
+.theme-light .bg-slate-800 {
+  background-color: #F1F5F9 !important; /* Slate 100 */
+}
+.theme-light .bg-slate-900 {
+  background-color: #E2E8F0 !important; /* Slate 200 */
+}
+.theme-light .border-slate-700 {
+  border-color: #CBD5E1 !important; /* Slate 300 */
+}
+

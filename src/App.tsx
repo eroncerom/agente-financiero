@@ -37,6 +37,25 @@ export const App: React.FC = () => {
   const [selectedTicker, setSelectedTicker] = useState<string>('V');
   const [isLoadingPortfolio, setIsLoadingPortfolio] = useState<boolean>(false);
 
+  // Estado de Tema: Modo Noche ('dark') por defecto vs Modo Día ('light')
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    const saved = localStorage.getItem('af_theme');
+    return saved === 'light' ? 'light' : 'dark';
+  });
+
+  useEffect(() => {
+    if (theme === 'light') {
+      document.documentElement.classList.add('theme-light');
+    } else {
+      document.documentElement.classList.remove('theme-light');
+    }
+    localStorage.setItem('af_theme', theme);
+  }, [theme]);
+
+  const handleToggleTheme = () => {
+    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+  };
+
   // Estado Multi-Mercado (Fase 2: S&P 500 · NASDAQ 100 · IBEX 35)
   const [selectedMarket, setSelectedMarket] = useState<MarketIndex>('SP500');
 
@@ -725,6 +744,8 @@ export const App: React.FC = () => {
         autoRefreshInterval={autoRefreshInterval}
         onChangeAutoRefreshInterval={handleAutoRefreshChange}
         isLiveSyncing={isLiveSyncing}
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
       />
 
       {/* 2. Layout Principal de los 3 Pilares en Pantalla */}

@@ -7,19 +7,19 @@ export default {
   theme: {
     extend: {
       colors: {
-        canvas: '#0B0E14',
-        card: '#121824',
-        cardSecondary: '#161F30',
-        cardHover: '#1A263D',
-        borderSubtle: '#1E293B',
-        borderMedium: '#22314E',
-        textPrimary: '#F8FAFC',
-        textSecondary: '#94A3B8',
-        accentSky: '#38BDF8',
-        accentYellow: '#FACC15',
-        statusGreen: '#10B981',
-        statusRed: '#EF4444',
-        statusNeutral: '#FFFFFF'
+        canvas: 'rgb(var(--color-canvas) / <alpha-value>)',
+        card: 'rgb(var(--color-card) / <alpha-value>)',
+        cardSecondary: 'rgb(var(--color-card-secondary) / <alpha-value>)',
+        cardHover: 'rgb(var(--color-card-hover) / <alpha-value>)',
+        borderSubtle: 'rgb(var(--color-border-subtle) / <alpha-value>)',
+        borderMedium: 'rgb(var(--color-border-medium) / <alpha-value>)',
+        textPrimary: 'rgb(var(--color-text-primary) / <alpha-value>)',
+        textSecondary: 'rgb(var(--color-text-secondary) / <alpha-value>)',
+        accentSky: 'rgb(var(--color-accent-sky) / <alpha-value>)',
+        accentYellow: 'rgb(var(--color-accent-yellow) / <alpha-value>)',
+        statusGreen: 'rgb(var(--color-status-green) / <alpha-value>)',
+        statusRed: 'rgb(var(--color-status-red) / <alpha-value>)',
+        statusNeutral: 'rgb(var(--color-status-neutral) / <alpha-value>)'
       }
     },
   },

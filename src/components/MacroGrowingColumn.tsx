@@ -416,9 +416,9 @@ export const MacroGrowingColumn: React.FC<MacroGrowingColumnProps> = ({
               </div>
 
               <svg className="w-full h-20 overflow-visible" viewBox="0 0 300 80" preserveAspectRatio="none">
-                <line x1="0" y1="20" x2="300" y2="20" stroke="#1E293B" strokeDasharray="3 3" />
-                <line x1="0" y1="40" x2="300" y2="40" stroke="#1E293B" strokeDasharray="3 3" />
-                <line x1="0" y1="60" x2="300" y2="60" stroke="#1E293B" strokeDasharray="3 3" />
+                <line x1="0" y1="20" x2="300" y2="20" stroke="var(--svg-grid)" strokeDasharray="3 3" />
+                <line x1="0" y1="40" x2="300" y2="40" stroke="var(--svg-grid)" strokeDasharray="3 3" />
+                <line x1="0" y1="60" x2="300" y2="60" stroke="var(--svg-grid)" strokeDasharray="3 3" />
 
                 {/* Curva Bono España 10Y (Nivel inferior más bajo ~3.05%) */}
                 <path
