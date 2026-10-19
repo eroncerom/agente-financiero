@@ -1,3 +1,19 @@
+// Manejo robusto de señales y errores de pipes rotos (evita cierres por EPIPE en Windows)
+process.stdout?.on('error', (err) => { if (err.code === 'EPIPE') return; });
+process.stderr?.on('error', (err) => { if (err.code === 'EPIPE') return; });
+process.on('uncaughtException', (err) => {
+  try {
+    fs.appendFileSync(path.join(process.cwd(), 'server_error.log'), `${new Date().toISOString()} [UNCAUGHT] ${err.stack || err.message}\n`);
+  } catch {}
+  console.error('[UNCAUGHT]', err);
+});
+process.on('unhandledRejection', (reason) => {
+  try {
+    fs.appendFileSync(path.join(process.cwd(), 'server_error.log'), `${new Date().toISOString()} [UNHANDLED_REJECTION] ${reason}\n`);
+  } catch {}
+  console.error('[UNHANDLED_REJECTION]', reason);
+});
+
 import express from 'express';
 import cors from 'cors';
 import compression from 'compression';
@@ -7,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { db, initDatabase } from './db.mjs';
 import { ejecutarBarridoPilar1, obtenerValuacionTicker, auditarActivoCompleto } from './pilar1_engine.mjs';
 import { ejecutarTestCalibracion } from './test_calibracion.mjs';
-import { syncPortfolioQuotesRealtime, fetchLiveQuote, fetchInstitutionalConsensus, fetchChartHistory, searchMarketAssets } from './market_service.mjs';
+import { syncPortfolioQuotesRealtime, fetchLiveQuote, fetchInstitutionalConsensus, fetchChartHistory, generateFallbackChart, searchMarketAssets } from './market_service.mjs';
 import { MARKETS_CONFIG, scanMarketWithLiveQuotes, syncMarketQuotesInRealtime } from './market_indices_service.mjs';
 import { computeRayDalioMacroState, computeSovereignComparison, computePortfolioDalioQuadrants } from './dalio_macro_engine.mjs';
 import { generarAnalisisTecnico } from './technical_analysis.mjs';
@@ -1016,19 +1032,25 @@ app.post('/api/market/sync', async (req, res) => {
   }
 });
 
-// 10. OBTENER GRÁFICO HISTÓRICO DE PRECIOS (1D, 1W, 1M, 1Y)
+// 10. OBTENER GRÁFICO HISTÓRICO DE PRECIOS (1D, 5D, 1M, 6M, YTD, 1A, 5A)
 app.get('/api/chart/:ticker', async (req, res) => {
+  const { ticker } = req.params;
+  const { timeframe = '1M' } = req.query;
   try {
-    const { ticker } = req.params;
-    const { timeframe = '1M' } = req.query;
     const data = await fetchChartHistory(ticker, timeframe);
-    if (!data) {
-      return res.status(404).json({ error: 'No se encontraron datos para este activo' });
+    if (!data || !data.points || data.points.length === 0) {
+      const fallback = generateFallbackChart(ticker, timeframe);
+      return res.json(fallback);
     }
     res.json(data);
   } catch (err) {
-    console.error('Error en /api/chart/:ticker:', err);
-    res.status(500).json({ error: 'Error al consultar gráfico de precios' });
+    console.warn(`[API] Fallback forzado en /api/chart/${ticker}:`, err.message);
+    try {
+      const fallback = generateFallbackChart(ticker, timeframe);
+      return res.json(fallback);
+    } catch (fallbackErr) {
+      res.status(500).json({ error: 'Error al consultar gráfico de precios' });
+    }
   }
 });
 

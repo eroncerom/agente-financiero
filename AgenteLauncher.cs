@@ -59,8 +59,9 @@ namespace AgenteFinanciero
                         return;
                     }
 
-                    // Launch node server hidden in the background, logging errors if any
                     string logFile = Path.Combine(baseDir, "server_error.log");
+
+                    // Launch node server hidden in the background as an independent detached process
                     ProcessStartInfo psi = new ProcessStartInfo
                     {
                         FileName = nodeExe,
@@ -68,22 +69,13 @@ namespace AgenteFinanciero
                         WorkingDirectory = baseDir,
                         CreateNoWindow = true,
                         UseShellExecute = false,
-                        RedirectStandardError = true,
+                        RedirectStandardError = false,
                         WindowStyle = ProcessWindowStyle.Hidden
                     };
 
                     Process nodeProc = new Process();
                     nodeProc.StartInfo = psi;
-                    nodeProc.ErrorDataReceived += (s, e) =>
-                    {
-                        if (!string.IsNullOrEmpty(e.Data))
-                        {
-                            try { File.AppendAllText(logFile, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " [ERROR] " + e.Data + Environment.NewLine); } catch { }
-                        }
-                    };
-
                     nodeProc.Start();
-                    nodeProc.BeginErrorReadLine();
 
                     // Wait up to 15 seconds for server to be responsive
                     int maxRetries = 30;

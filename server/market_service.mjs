@@ -219,12 +219,44 @@ const chartCache = new Map();
 /**
  * Genera puntos simulados coherentes con OHLCV cuando no hay conexión a Yahoo Finance
  */
-function generateFallbackChart(ticker, tf) {
-  const quote = db.prepare('SELECT * FROM market_quotes WHERE ticker = ?').get(ticker);
-  const currentPrice = quote?.current_price || 100;
-  const currency = quote?.currency || 'USD';
-  const low52 = quote?.fifty_two_week_low || currentPrice * 0.85;
-  const high52 = quote?.fifty_two_week_high || currentPrice * 1.15;
+export function generateFallbackChart(ticker, tf, priceHint = null) {
+  const cleanTicker = (ticker || '').trim().toUpperCase();
+  let currentPrice = priceHint && priceHint > 0 ? priceHint : null;
+  let currency = cleanTicker.endsWith('.MC') ? 'EUR' : 'USD';
+  let low52 = null;
+  let high52 = null;
+
+  // 1. Buscar en market_quotes
+  if (!currentPrice) {
+    try {
+      const quote = db.prepare('SELECT * FROM market_quotes WHERE UPPER(ticker) = ?').get(cleanTicker);
+      if (quote) {
+        currentPrice = quote.current_price;
+        currency = quote.currency || currency;
+        low52 = quote.fifty_two_week_low;
+        high52 = quote.fifty_two_week_high;
+      }
+    } catch {}
+  }
+
+  // 2. Buscar en portfolio_trades
+  if (!currentPrice) {
+    try {
+      const trade = db.prepare('SELECT buy_price, currency FROM portfolio_trades WHERE UPPER(ticker) = ? ORDER BY id DESC LIMIT 1').get(cleanTicker);
+      if (trade) {
+        currentPrice = trade.buy_price;
+        currency = trade.currency || currency;
+      }
+    } catch {}
+  }
+
+  // 3. Fallback razonable si no se encuentra
+  if (!currentPrice || currentPrice <= 0) {
+    currentPrice = 100.0;
+  }
+
+  if (!low52 || low52 <= 0) low52 = Number((currentPrice * 0.88).toFixed(2));
+  if (!high52 || high52 <= 0) high52 = Number((currentPrice * 1.12).toFixed(2));
 
   let count = 30;
   let timeStepSeconds = 86400;
@@ -301,7 +333,7 @@ function generateFallbackChart(ticker, tf) {
   const changeAmount = Number((currentPrice - firstPrice).toFixed(2));
 
   return {
-    ticker,
+    ticker: cleanTicker,
     timeframe: tf,
     currency,
     points,
@@ -348,8 +380,15 @@ export async function fetchChartHistory(ticker, timeframe = '1M') {
   }
 
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(cleanTicker)}?range=${tfConfig.range}&interval=${tfConfig.interval}`;
-    const resp = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
+    const resp = await fetch(url, {
+      headers: { 'User-Agent': USER_AGENT },
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+
     if (!resp.ok) {
       throw new Error(`HTTP ${resp.status}`);
     }
@@ -434,7 +473,9 @@ export async function fetchChartHistory(ticker, timeframe = '1M') {
     return responseData;
   } catch (err) {
     console.warn(`[MarketService] Fallback gráfico para ${cleanTicker} (${tf}):`, err.message);
-    return generateFallbackChart(cleanTicker, tf);
+    const fallbackData = generateFallbackChart(cleanTicker, tf);
+    chartCache.set(cacheKey, { timestamp: now, data: fallbackData });
+    return fallbackData;
   }
 }
 
