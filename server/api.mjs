@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { db, initDatabase } from './db.mjs';
 import { ejecutarBarridoPilar1, obtenerValuacionTicker, auditarActivoCompleto } from './pilar1_engine.mjs';
 import { ejecutarTestCalibracion } from './test_calibracion.mjs';
-import { syncPortfolioQuotesRealtime, fetchLiveQuote, fetchInstitutionalConsensus, fetchChartHistory, generateFallbackChart, searchMarketAssets } from './market_service.mjs';
+import { syncPortfolioQuotesRealtime, fetchLiveQuote, fetchInstitutionalConsensus, fetchChartHistory, generateFallbackChart, searchMarketAssets, calculatePrudentTargetExit } from './market_service.mjs';
 import { MARKETS_CONFIG, scanMarketWithLiveQuotes, syncMarketQuotesInRealtime } from './market_indices_service.mjs';
 import { computeRayDalioMacroState, computeSovereignComparison, computePortfolioDalioQuadrants } from './dalio_macro_engine.mjs';
 import { generarAnalisisTecnico } from './technical_analysis.mjs';
@@ -146,6 +146,7 @@ export async function getConsolidatedPortfolio() {
     currencyTotals[pos.currency] = (currencyTotals[pos.currency] || 0) + valEur;
 
     let targetExitPrice = null;
+    const prudentExitPrice = calculatePrudentTargetExit(avgBuyPrice, quote.fifty_two_week_high, fairValueFund);
     const customTradesTarget = pos.trades.reduce((acc, t) => {
       const val = t.target_exit_price || null;
       return val ? Math.max(acc, val) : acc;
@@ -153,8 +154,8 @@ export async function getConsolidatedPortfolio() {
 
     if (customTradesTarget > 0) {
       targetExitPrice = customTradesTarget;
-    } else if (fairValueFund && fairValueFund > 0) {
-      targetExitPrice = fairValueFund;
+    } else if (prudentExitPrice && prudentExitPrice > 0) {
+      targetExitPrice = prudentExitPrice;
     }
 
     const hasReachedExit = targetExitPrice != null && targetExitPrice > 0 && currentPrice >= targetExitPrice;
@@ -182,6 +183,7 @@ export async function getConsolidatedPortfolio() {
       weight_pct: 0,
       fair_value: fairValueFund ? parseFloat(fairValueFund.toFixed(2)) : null,
       mos_buy_ceiling: mosBuyCeiling ? parseFloat(mosBuyCeiling.toFixed(2)) : null,
+      prudent_exit_price: prudentExitPrice,
       target_exit_price: targetExitPrice != null && targetExitPrice > 0 ? parseFloat(targetExitPrice.toFixed(2)) : null,
       has_reached_exit: hasReachedExit,
       is_in_freefall: isInFreefall,
@@ -305,9 +307,12 @@ app.post('/api/portfolio', (req, res) => {
 
     const parsedBuyPrice = parseFloat(buy_price);
     const valModel = obtenerValuacionTicker(cleanTicker, parsedBuyPrice);
+    const quoteRow = db.prepare('SELECT fifty_two_week_high FROM market_quotes WHERE UPPER(ticker) = ?').get(cleanTicker);
+    const high52Ref = quoteRow?.fifty_two_week_high || valModel?.fifty_two_week_high || null;
+    const fvRef = valModel?.fair_value_teorico || valModel?.escalera_mos?.fair_value || null;
     const parsedTargetExit = (target_exit_price != null && !isNaN(parseFloat(target_exit_price)) && parseFloat(target_exit_price) > 0)
       ? parseFloat(target_exit_price)
-      : (valModel?.fair_value_teorico || valModel?.escalera_mos?.fair_value || null);
+      : calculatePrudentTargetExit(parsedBuyPrice, high52Ref, fvRef);
 
     const stmt = db.prepare(`
       INSERT INTO portfolio_trades (
@@ -821,6 +826,8 @@ app.get('/api/quote/:ticker', async (req, res) => {
     const valModel = obtenerValuacionTicker(ticker, price);
     const fairValue = valModel?.fair_value_teorico || valModel?.escalera_mos?.fair_value || null;
     const mosCeiling = valModel?.techo_maximo_compra || null;
+    const high52 = quote?.fifty_two_week_high || valModel?.fifty_two_week_high || null;
+    const prudentExit = calculatePrudentTargetExit(price, high52, fairValue);
     const arquetipo = valModel?.nombre_arquetipo || null;
     const qualityTier = valModel?.quality_tier || null;
     const modeloValoracion = valModel?.modelo_valoracion || null;
@@ -834,8 +841,9 @@ app.get('/api/quote/:ticker', async (req, res) => {
       fx_eur_usd: eurUsdRate,
       price_eur: priceEUR,
       fifty_two_week_low: quote?.fifty_two_week_low || null,
-      fifty_two_week_high: quote?.fifty_two_week_high || null,
+      fifty_two_week_high: high52,
       fair_value: fairValue ? parseFloat(fairValue.toFixed(2)) : null,
+      target_exit_price: prudentExit,
       mos_buy_ceiling: mosCeiling ? parseFloat(mosCeiling.toFixed(2)) : null,
       arquetipo,
       quality_tier: qualityTier,

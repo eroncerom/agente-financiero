@@ -34,7 +34,7 @@ export function initDatabase() {
   try { db.exec("ALTER TABLE portfolio_trades ADD COLUMN closing_notes TEXT"); } catch {}
   try { db.exec("ALTER TABLE portfolio_trades ADD COLUMN target_exit_price REAL"); } catch {}
   try { db.exec("ALTER TABLE portfolio_trades ADD COLUMN target_exit_notes TEXT"); } catch {}
-  try { db.exec("UPDATE portfolio_trades SET target_exit_price = ROUND(buy_price * 1.15, 2) WHERE target_exit_price IS NULL AND buy_price > 0"); } catch {}
+  try { db.exec("UPDATE portfolio_trades SET target_exit_price = ROUND(buy_price * 1.10, 2) WHERE target_exit_price IS NULL AND buy_price > 0"); } catch {}
 
   // 2. Market Quotes Cache
   db.exec(`

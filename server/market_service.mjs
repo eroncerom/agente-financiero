@@ -481,26 +481,53 @@ export async function fetchChartHistory(ticker, timeframe = '1M') {
 
 /**
  * Calcula un Precio Objetivo de Salida (Take Profit) prudente y realista:
- * Reglas de Gestión de Carteras:
- * 1. Respeto al Máximo Anual (52W High):
- *    - Un objetivo conservador de toma de beneficios NUNCA debe proyectarse por encima de la resistencia
- *      anual (máximo de 52 semanas). Exigir que un activo maduro rompa máximos anuales para vender es
-/**
- * Salida Fundamental (Graham-Dodd / Klarman / Damodaran):
- * En finanzas corporativas rigurosas, el precio objetivo de salida de una posición de valor
- * es la convergencia hacia su Valor Intrínseco Justo (Fair Value).
- * No se aplican multiplicadores arbitrarios (+8%, +12%, 98%) ni techos ad-hoc sobre precios pasados.
- * 
- * @param {number|null} buyPrice Precio de adquisición
- * @param {number|null} high52 Máximo anual de 52 semanas (no utilizado en salida fundamental)
+ * Reglas de Gestión Táctica y Protección de Beneficios:
+ * 1. Compresión de Retorno Táctico (Reversión Parcial al Fair Value):
+ *    - Si no hay Fair Value o el margen teórico es muy estrecho (<= 3%), aplica un objetivo base conservador (+10%).
+ *    - Si el recorrido al Fair Value es moderado (3% a 12%), aplica una reserva de ejecución del 1% antes del Fair Value
+ *      (mínimo +4% sobre compra) para asegurar el cierre antes de que el precio se gire.
+ *    - Si el Fair Value está muy alejado (> 12%, habitual cuando el consenso de Wall Street infla objetivos a +30% o +80%),
+ *      comprime el exceso capturando el tramo central seguro: 9% + 40% del recorrido excedente sobre el 10%,
+ *      con un techo táctico máximo del +22% sobre el precio de entrada.
+ * 2. Respeto a la Resistencia Anual (52W High Cap):
+ *    - Si el máximo de 52 semanas está al menos un 4% por encima del precio de compra, el objetivo de salida
+ *      queda acotado un 1.2% por debajo de dicha resistencia anual (high52 * 0.988), evitando exigir rupturas de máximos.
+ *
+ * @param {number|null} buyPrice Precio de adquisición o cotización actual de referencia
+ * @param {number|null} high52 Máximo anual de 52 semanas
  * @param {number|null} fairValue Valor Justo del modelo fundamental
- * @returns {number|null} El precio objetivo de salida intrínseco, o null si no hay modelo disponible.
+ * @returns {number|null} El precio objetivo de salida prudente redondeado a 2 decimales.
  */
 export function calculatePrudentTargetExit(buyPrice = null, high52 = null, fairValue = null) {
-  if (fairValue && fairValue > 0) {
-    return Number(fairValue.toFixed(2));
+  const bp = buyPrice && buyPrice > 0 ? Number(buyPrice) : null;
+  const fv = fairValue && fairValue > 0 ? Number(fairValue) : null;
+  const h52 = high52 && high52 > 0 ? Number(high52) : null;
+
+  if (!bp) {
+    if (!fv) return null;
+    const baseExit = Number((fv * 0.92).toFixed(2));
+    return h52 ? Number(Math.min(baseExit, h52 * 0.988).toFixed(2)) : baseExit;
   }
-  return null;
+
+  const rawUpside = fv ? (fv - bp) / bp : 0.10;
+  let prudentUpside;
+
+  if (!fv || rawUpside <= 0.03) {
+    prudentUpside = 0.10;
+  } else if (rawUpside <= 0.12) {
+    prudentUpside = Math.max(0.04, rawUpside - 0.01);
+  } else {
+    prudentUpside = 0.09 + (rawUpside - 0.10) * 0.40;
+    prudentUpside = Math.min(prudentUpside, 0.22);
+  }
+
+  let target = bp * (1 + prudentUpside);
+
+  if (h52 && h52 > bp * 1.04) {
+    target = Math.min(target, h52 * 0.988);
+  }
+
+  return Number(target.toFixed(2));
 }
 
 /**

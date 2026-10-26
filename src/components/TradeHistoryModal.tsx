@@ -19,6 +19,7 @@ import {
   Plus
 } from 'lucide-react';
 import { PortfolioTrade, ClosedSummary, Currency } from '../types';
+import { calculatePrudentTargetExit } from '../utils/valuation';
 
 export type ClosedTradePeriod = '1Y' | 'YTD' | '6M' | 'ALL' | 'CUSTOM';
 
@@ -269,9 +270,7 @@ export const TradeHistoryModal: React.FC<TradeHistoryModalProps> = ({
     setEditTargetExitPrice(
       trade.target_exit_price
         ? trade.target_exit_price.toString()
-        : trade.fair_value
-        ? trade.fair_value.toFixed(2)
-        : ''
+        : calculatePrudentTargetExit(trade.buy_price, trade.fifty_two_week_high, trade.fair_value)
     );
     setEditTargetExitNotes(trade.target_exit_notes || '');
     setEditMode('AMOUNT');
@@ -298,7 +297,10 @@ export const TradeHistoryModal: React.FC<TradeHistoryModalProps> = ({
         if (data.fair_value) {
           setEditFairValue(data.fair_value);
           if (!editTargetExitPrice) {
-            setEditTargetExitPrice(data.fair_value.toFixed(2));
+            const prudent = data.target_exit_price
+              ? Number(data.target_exit_price).toFixed(2)
+              : calculatePrudentTargetExit(data.price || parseFloat(editBuyPrice), data.fifty_two_week_high, data.fair_value);
+            if (prudent) setEditTargetExitPrice(prudent);
           }
         }
       }
@@ -1258,19 +1260,23 @@ export const TradeHistoryModal: React.FC<TradeHistoryModalProps> = ({
                       <Target className="w-3.5 h-3.5" />
                       <span>Precio Objetivo de Salida / Venta ({editCurrency === 'EUR' ? '€' : '$'})</span>
                     </label>
-                    {(editFairValue || editingTrade?.fair_value) && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const fv = editFairValue || editingTrade?.fair_value;
-                          if (fv) setEditTargetExitPrice(fv.toFixed(2));
-                        }}
-                        className="text-[10px] text-accentSky hover:text-accentSky/80 font-mono underline"
-                        title="Fijar precio objetivo en el Valor Intrínseco Justo calculado por el motor fundamental"
-                      >
-                        Cargar Fair Value ({editCurrency === 'EUR' ? '€' : '$'}{(editFairValue || editingTrade?.fair_value)?.toFixed(2)})
-                      </button>
-                    )}
+                    {(() => {
+                      const prudentEdit = calculatePrudentTargetExit(
+                        parseFloat(editBuyPrice) || editingTrade?.buy_price,
+                        editingTrade?.fifty_two_week_high,
+                        editFairValue || editingTrade?.fair_value
+                      );
+                      return prudentEdit ? (
+                        <button
+                          type="button"
+                          onClick={() => setEditTargetExitPrice(prudentEdit)}
+                          className="text-[10px] text-accentSky hover:text-accentSky/80 font-mono underline"
+                          title="Fijar precio objetivo en la salida táctica prudente acotada bajo la resistencia de 52 semanas"
+                        >
+                          Salida Prudente ({editCurrency === 'EUR' ? '€' : '$'}{prudentEdit})
+                        </button>
+                      ) : null;
+                    })()}
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <input

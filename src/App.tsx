@@ -12,6 +12,7 @@ import { DiscardedDetailModal } from './components/DiscardedDetailModal';
 import { AssetSearchModal, SearchAssetItem } from './components/AssetSearchModal';
 import { CompanyFinancialDeepDiveModal } from './components/CompanyFinancialDeepDiveModal';
 import { AIAssistantDrawer } from './components/AIAssistantDrawer';
+import { calculatePrudentTargetExitNumber } from './utils/valuation';
 import {
   PortfolioPosition,
   PortfolioSummary,
@@ -93,6 +94,8 @@ export const App: React.FC = () => {
     companyName?: string;
     buyPrice?: number;
     fairValue?: number;
+    high52?: number;
+    targetExitPrice?: number;
     currency?: 'EUR' | 'USD';
   } | null>(null);
   const [isThesisOpen, setIsThesisOpen] = useState(false);
@@ -203,12 +206,16 @@ export const App: React.FC = () => {
   // Abrir modal de compra directamente con datos de una empresa
   const handleOpenAddTradeWithCompany = (comp: any) => {
     const rawPrice = comp.buyPrice ?? comp.buy_price ?? comp.precio_cierre_P0 ?? comp.current_price ?? comp.price ?? comp.added_price ?? 0;
-    const rawFv = comp.fairValue ?? comp.fair_value_Gordon ?? comp.fair_value ?? comp.target_exit_price ?? (rawPrice > 0 ? Number((rawPrice * 1.15).toFixed(2)) : undefined);
+    const rawFv = comp.fairValue ?? comp.fair_value_Gordon ?? comp.fair_value ?? undefined;
+    const rawHigh52 = comp.fifty_two_week_high ?? comp.rango_52_semanas?.high ?? undefined;
+    const prudentExit = calculatePrudentTargetExitNumber(rawPrice > 0 ? rawPrice : null, rawHigh52, rawFv);
     setInitialTradeData({
       ticker: (comp.ticker || '').trim().toUpperCase(),
       companyName: comp.nombre || comp.company_name || comp.companyName || comp.name || comp.ticker,
       buyPrice: rawPrice > 0 ? rawPrice : undefined,
       fairValue: rawFv > 0 ? rawFv : undefined,
+      high52: rawHigh52 > 0 ? rawHigh52 : undefined,
+      targetExitPrice: prudentExit ?? (comp.target_exit_price > 0 ? comp.target_exit_price : undefined),
       currency: comp.currency || 'USD'
     });
     setIsAddTradeOpen(true);

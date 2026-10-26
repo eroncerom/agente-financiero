@@ -26,7 +26,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db } from './db.mjs';
-import { fetchLiveQuote, fetchInstitutionalConsensus } from './market_service.mjs';
+import { fetchLiveQuote, fetchInstitutionalConsensus, calculatePrudentTargetExit } from './market_service.mjs';
 import { evaluarFiltroValue } from './value_filter_engine.mjs';
 import { buildCompanyFinancialDeepDive } from './financial_history_service.mjs';
 
@@ -390,13 +390,14 @@ export function evaluarTrampaFundamental(empresa) {
   const accruals = empresa.sloan_accruals;
 
   // 1. Apalancamiento crítico (solo aplicable a no financieras)
-  if (!esFinanciera && ndEbitda != null && ndEbitda > 4.5 && cov != null && cov < 2.0) {
+  const ndEbitdaExcesivo = ndEbitda != null && (ndEbitda >= 4.5 || (ndEbitda >= 3.5 && (cov == null || cov < 2.0)));
+  if (!esFinanciera && ndEbitdaExcesivo) {
     alertas.push({
       tipo: 'SOBRECARGA_DEUDA',
       severidad: 'CRITICA',
       icono: '💥',
-      titulo: 'Apalancamiento Crítico y Cobertura Insuficiente',
-      detalle: `Deuda Neta / EBITDA de ${ndEbitda}x y cobertura de intereses de solo ${cov}x.`
+      titulo: 'Apalancamiento Crítico y Riesgo de Deuda',
+      detalle: `Deuda Neta / EBITDA de ${ndEbitda}x${cov != null ? ` y cobertura de intereses de ${cov}x` : ' (nivel de endeudamiento peligroso)'}.`
     });
   }
 
@@ -947,22 +948,37 @@ export function evaluarEmpresaPilar1(empresa, rfCustom = null, erpCustom = null,
   let metodoFairValue = 'DCF_FUNDAMENTAL';
   let distorsionDetectada = false;
 
+  const netDebtShare = empresa.net_debt_per_share || 0;
+  const esNoFinanciera = empresa.arquetipo !== 'BANCA_FINANCIERA' && empresa.arquetipo !== 'GESTORA_ACTIVOS';
+  const esDistressDeuda = esNoFinanciera && (
+    (val.fairValueNeu <= 0 && netDebtShare > 0) ||
+    (empresa.net_debt_ebitda != null && empresa.net_debt_ebitda >= 4.5)
+  );
+
   if (targetWallSt) {
     const dcfFv = val.fairValueNeu;
     const ratioDcfTarget = dcfFv > 0 ? targetWallSt / dcfFv : 999;
     const ratioP0Dcf = dcfFv > 0 ? p0 / dcfFv : 999;
     const ratioDcfP0 = dcfFv > 0 ? dcfFv / p0 : 0;
 
-    // Se detecta distorsión si el DCF difiere drásticamente del consenso institucional o del precio de cotización
-    const esDistorsion = (
+    // Se detecta distorsión si el DCF difiere drásticamente del consenso institucional por capex,
+    // pero NUNCA si hay sobreendeudamiento crítico / distress donde la deuda absorbe el valor operativo.
+    const esDistorsion = !esDistressDeuda && (
       ratioDcfTarget > 1.40 || 
       ratioDcfTarget < 0.65 || 
       ratioP0Dcf > 1.70 || 
-      ratioDcfP0 > 2.20 || 
-      dcfFv <= 0
+      ratioDcfP0 > 2.20
     );
 
-    if (esDistorsion) {
+    if (esDistressDeuda) {
+      // La deuda supera el valor operativo o Deuda/EBITDA >= 4.5x: el consenso no rescata una estructura insolvente
+      fairValueFinal = dcfFv > 0 ? dcfFv : 0;
+      fairValueOptFinal = Number((targetWallSt * 0.75).toFixed(2));
+      fairValuePessFinal = 0;
+      modeloFinal = `${val.modelo_utilizado} (Distress de Deuda - Consenso Wall St No Aplicable)`;
+      formulaFinal = 'Equity Value = DCF deducida Deuda Neta (Apalancamiento Crítico)';
+      metodoFairValue = 'DCF_DEBT_DISTRESS';
+    } else if (esDistorsion) {
       distorsionDetectada = true;
       fairValueFinal = targetWallSt;
       fairValueOptFinal = Number((targetWallSt * 1.15).toFixed(2));
@@ -1011,13 +1027,13 @@ export function evaluarEmpresaPilar1(empresa, rfCustom = null, erpCustom = null,
   // 8. Auditoría de Trampas Fundamentales (Fase 2, Punto 9)
   const trampaFund = evaluarTrampaFundamental(empresa);
 
-  // Escenario de Estrés (caída del 30% en flujos, r + 1,5%)
+  // Escenario de Estrés (caída del 30% en flujos, r + 1,5%) con deducción de deuda neta
   const cfEstres = Number((val.baseFlujo * 0.70).toFixed(2));
   const rEstres = Number((r + 0.015).toFixed(4));
   const dcfEstres = calcularValorDCF3Etapas(cfEstres, rEstres, 0.020, 0.020);
-  const fairValueEstres = dcfEstres.fairValue;
+  const fairValueEstres = esNoFinanciera ? Math.max(0, dcfEstres.fairValue - netDebtShare) : dcfEstres.fairValue;
   const techoMoSEstres = Number((fairValueEstres * factorMoS).toFixed(2));
-  const cumpleEstres = p0 <= techoMoSEstres;
+  const cumpleEstres = fairValueEstres > 0 && p0 <= techoMoSEstres;
 
   // Criterio estricto de calificación:
   // Compra autorizada solo si cotiza por debajo del techo prudente MoS
@@ -1083,7 +1099,7 @@ export function evaluarEmpresaPilar1(empresa, rfCustom = null, erpCustom = null,
     fair_value_dcf_original: distorsionDetectada ? val.fairValueNeu : null,
     precio_entrada_prudente: techoMaximoMoS,
     techo_maximo_compra: techoMaximoMoS,
-    target_exit_price: fairValueFinal,
+    target_exit_price: calculatePrudentTargetExit(p0, empresa.fifty_two_week_high, fairValueFinal),
     estado_compra: estadoCompra,
     descripcion_estado: descEstadoCompra,
     vpMoSNeu,
@@ -1130,14 +1146,29 @@ export function evaluarEmpresaPilar1(empresa, rfCustom = null, erpCustom = null,
     }
   };
 
-  // Descarte por Trampa Fundamental crítica
-  if (trampaFund.esTrampaFundamental && !cumpleEstres) {
-    const primerDet = trampaFund.alertas[0]?.detalle || 'Riesgo de insolvencia o sobreendeudamiento crítico';
+  // Descarte por Trampa Fundamental crítica, Sobreendeudamiento Crítico o Filtro Value severo
+  const filtroVal = commonAuditFields.filtro_value;
+  const esDescarteFiltroGrave = filtroVal?.veredicto?.includes('DESCARTADO DE INMEDIATO') && (
+    (empresa.net_debt_ebitda != null && empresa.net_debt_ebitda >= 4.0) ||
+    health.score < 45 ||
+    (val.fairValueNeu <= 0 && netDebtShare > 0)
+  );
+
+  if (esDistressDeuda || (trampaFund.esTrampaFundamental && !cumpleEstres) || esDescarteFiltroGrave) {
+    let motivoDetalle = trampaFund.alertas[0]?.detalle;
+    if (val.fairValueNeu <= 0 && netDebtShare > 0) {
+      motivoDetalle = `La deuda neta (${currSym}${netDebtShare.toFixed(2)}/acc) absorbe el valor operativo de los activos (${currSym}${(val.detallesModelo?.enterprise_value_per_share || 0).toFixed(2)}/acc), dejando el valor patrimonial del accionista en riesgo crítico.`;
+    } else if (empresa.net_debt_ebitda != null && empresa.net_debt_ebitda >= 4.5) {
+      motivoDetalle = `Apalancamiento de ${empresa.net_debt_ebitda}x Deuda Neta/EBITDA excede el umbral prudente y genera fragilidad financiera.`;
+    } else if (!motivoDetalle) {
+      motivoDetalle = filtroVal?.motivo_parrafo || 'Riesgo de insolvencia o sobreendeudamiento crítico';
+    }
+
     return {
       status: 'DISCARDED_VALUE_TRAP',
       ...commonAuditFields,
       tipo_descarte: 'TRAMPA_FUNDAMENTAL',
-      motivo_pedagogico: `Descarte Preventivo por Trampa Fundamental: ${empresa.nombre} cotiza a ${currSym}${p0.toFixed(2)}, con alertas de riesgo estructural: ${primerDet}. No supera la prueba de estrés de solvencia.`
+      motivo_pedagogico: `Descarte Preventivo por Trampa Fundamental / Deuda: ${empresa.nombre} cotiza a ${currSym}${p0.toFixed(2)}, con alertas de riesgo estructural: ${motivoDetalle}. No apta para inversión Value rigurosa.`
     };
   }
 
@@ -1522,7 +1553,7 @@ export async function auditarActivoCompleto(ticker, mosDiscount = 0.25) {
     };
 
     const evalRes = evaluarEmpresaPilar1(empAuditada, rf, erp, 0.07, mosDiscount);
-    if (evalRes && evalRes.escenario_neutro && evalRes.fair_value_teorico > 0) {
+    if (evalRes && (evalRes.status === 'DISCARDED_VALUE_TRAP' || evalRes.tipo_descarte === 'TRAMPA_FUNDAMENTAL' || (evalRes.escenario_neutro && evalRes.fair_value_teorico > 0))) {
       return {
         ...evalRes,
         datos_en_vivo: true,
@@ -1672,6 +1703,7 @@ export async function auditarActivoCompleto(ticker, mosDiscount = 0.25) {
     spread_r_g: Number(((r - gEfectivo) * 100).toFixed(2)),
     mos_discount_pct: Math.round(mosDiscount * 100),
     techo_maximo_compra: dynamicTecho,
+    target_exit_price: calculatePrudentTargetExit(p0, high52, fairValue),
     fair_value_Gordon: fairValue,
     fair_value_teorico: fairValue,
     fair_value_pess: fairValuePess,

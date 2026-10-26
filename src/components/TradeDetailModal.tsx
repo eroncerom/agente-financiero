@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { PortfolioPosition, PortfolioTrade } from '../types';
 import { StockPriceChart } from './StockPriceChart';
+import { calculatePrudentTargetExit } from '../utils/valuation';
 
 interface TradeDetailModalProps {
   isOpen: boolean;
@@ -84,10 +85,10 @@ export const TradeDetailModal: React.FC<TradeDetailModalProps> = ({
       setEditDate(activeTrade.execution_date || new Date().toISOString().split('T')[0]);
       setEditNotes(activeTrade.notes || '');
 
-      // Salida sugerida por convergencia a Valor Justo Intrínseco fundamental
+      // Salida sugerida prudente acotada por compresión táctica y resistencia de 52 semanas
       const defaultExit = activeTrade.target_exit_price != null && activeTrade.target_exit_price > 0
         ? activeTrade.target_exit_price.toString()
-        : (position.fair_value ? position.fair_value.toFixed(2) : '');
+        : calculatePrudentTargetExit(activeTrade.buy_price, position.fifty_two_week_high, position.fair_value);
 
       setEditTargetExit(defaultExit);
       setEditTargetNotes(activeTrade.target_exit_notes || '');
@@ -191,12 +192,19 @@ export const TradeDetailModal: React.FC<TradeDetailModalProps> = ({
     }
   };
 
-  // Aplicar sugerencia basada en el Valor Intrínseco Justo del modelo fundamental
+  // Salida prudente calculada para el trade activo
+  const prudentExitSuggestion = calculatePrudentTargetExit(
+    parseFloat(editBuyPrice) || activeTrade?.buy_price || position.buy_price,
+    position.fifty_two_week_high,
+    position.fair_value
+  );
+
+  // Aplicar sugerencia de salida táctica prudente
   const handleApplyFundamentalFairValue = () => {
-    if (position?.fair_value) {
-      setEditTargetExit(position.fair_value.toFixed(2));
+    if (prudentExitSuggestion) {
+      setEditTargetExit(prudentExitSuggestion);
       setEditTargetNotes(
-        `Convergencia hacia el Valor Justo Intrínseco (${sym}${position.fair_value.toFixed(2)})`
+        `Salida táctica prudente (${sym}${prudentExitSuggestion}) acotada por resistencia de 52S y recorrido realista`
       );
     }
   };
@@ -387,15 +395,15 @@ export const TradeDetailModal: React.FC<TradeDetailModalProps> = ({
                   Configuración de Salida (Precio Objetivo / Venta)
                 </span>
               </div>
-              {position?.fair_value && (
+              {prudentExitSuggestion && (
                 <button
                   type="button"
                   onClick={handleApplyFundamentalFairValue}
                   className="text-[11px] font-semibold text-accentSky hover:underline flex items-center space-x-1"
-                  title="Fijar precio objetivo en el Valor Intrínseco Justo calculado por el motor fundamental"
+                  title="Fijar precio objetivo en la salida táctica prudente acotada bajo la resistencia de 52 semanas"
                 >
                   <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>Cargar Fair Value ({sym}{position.fair_value.toFixed(2)})</span>
+                  <span>Salida Prudente ({sym}{prudentExitSuggestion})</span>
                 </button>
               )}
             </div>

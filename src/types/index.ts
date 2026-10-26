@@ -30,6 +30,7 @@ export interface PortfolioPosition {
   trades_count: number;
   target_exit_price?: number | null;
   target_exit_notes?: string | null;
+  prudent_exit_price?: number | null;
   fair_value?: number | null;
   mos_buy_ceiling?: number | null;
   has_reached_exit?: boolean;
@@ -88,6 +89,7 @@ export interface PortfolioTrade {
   closing_notes?: string;
   target_exit_price?: number | null;
   target_exit_notes?: string | null;
+  prudent_exit_price?: number | null;
   fair_value?: number | null;
   mos_buy_ceiling?: number | null;
   fifty_two_week_high?: number | null;

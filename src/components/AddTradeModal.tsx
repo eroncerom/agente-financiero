@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Plus, DollarSign, Calculator, RefreshCw, ArrowRightLeft, Target } from 'lucide-react';
 import { Currency } from '../types';
+import { calculatePrudentTargetExit } from '../utils/valuation';
 
 interface AddTradeModalProps {
   isOpen: boolean;
@@ -11,6 +12,8 @@ interface AddTradeModalProps {
     companyName?: string;
     buyPrice?: number;
     fairValue?: number;
+    high52?: number;
+    targetExitPrice?: number;
     currency?: Currency;
   } | null;
 }
@@ -29,7 +32,12 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({ isOpen, onClose, o
   const [fees, setFees] = useState('0');
   const [executionDate, setExecutionDate] = useState(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
-  const [targetExitPrice, setTargetExitPrice] = useState(initialData?.fairValue ? initialData.fairValue.toString() : '');
+  const [targetExitPrice, setTargetExitPrice] = useState(
+    initialData?.targetExitPrice
+      ? initialData.targetExitPrice.toFixed(2)
+      : calculatePrudentTargetExit(initialData?.buyPrice, initialData?.high52, initialData?.fairValue)
+  );
+  const [isExitManuallyEdited, setIsExitManuallyEdited] = useState(false);
   const [targetExitNotes, setTargetExitNotes] = useState('');
 
   // Estados de consulta de mercado y cálculo
@@ -40,7 +48,8 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({ isOpen, onClose, o
     eurRate?: number;
     priceEur?: number;
   } | null>(null);
-  const [fundamentalFairValue, setFundamentalFairValue] = useState<number | null>(null);
+  const [fundamentalFairValue, setFundamentalFairValue] = useState<number | null>(initialData?.fairValue || null);
+  const [fiftyTwoWeekHigh, setFiftyTwoWeekHigh] = useState<number | null>(initialData?.high52 || null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -75,12 +84,20 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({ isOpen, onClose, o
     }
   }, [shares, buyPrice, inputMode]);
 
-  // Salida sugerida basada en Valor Intrínseco Justo (Fair Value)
+  // Salida sugerida prudente (acotada por compresión táctica y resistencia de 52 semanas)
   useEffect(() => {
-    if (fundamentalFairValue && !targetExitPrice) {
-      setTargetExitPrice(fundamentalFairValue.toFixed(2));
+    if (!isExitManuallyEdited) {
+      const bp = parseFloat(buyPrice);
+      const prudent = calculatePrudentTargetExit(
+        !isNaN(bp) && bp > 0 ? bp : null,
+        fiftyTwoWeekHigh,
+        fundamentalFairValue
+      );
+      if (prudent) {
+        setTargetExitPrice(prudent);
+      }
     }
-  }, [fundamentalFairValue]);
+  }, [buyPrice, fiftyTwoWeekHigh, fundamentalFairValue, isExitManuallyEdited]);
 
   // Consultar cotización en tiempo real del ticker
   const handleFetchQuote = async (tickerToFetch?: string) => {
@@ -97,14 +114,10 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({ isOpen, onClose, o
           setCompanyName(data.name);
         }
 
-        if (data.fair_value) {
-          setFundamentalFairValue(data.fair_value);
-          if (!targetExitPrice) {
-            setTargetExitPrice(data.fair_value.toFixed(2));
-          }
-        } else {
-          setFundamentalFairValue(null);
-        }
+        const fv = data.fair_value || null;
+        const h52 = data.fifty_two_week_high || null;
+        setFundamentalFairValue(fv);
+        setFiftyTwoWeekHigh(h52);
 
         if (data.price) {
           setQuoteInfo({
@@ -116,6 +129,18 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({ isOpen, onClose, o
 
           // Establecer siempre el precio de cotización real y actual del activo
           setBuyPrice(data.price.toString());
+          setIsExitManuallyEdited(false);
+          const prudent = data.target_exit_price
+            ? Number(data.target_exit_price).toFixed(2)
+            : calculatePrudentTargetExit(data.price, h52, fv);
+          if (prudent) {
+            setTargetExitPrice(prudent);
+          }
+        } else if (fv) {
+          const prudent = calculatePrudentTargetExit(parseFloat(buyPrice) || null, h52, fv);
+          if (prudent && !isExitManuallyEdited) {
+            setTargetExitPrice(prudent);
+          }
         }
 
         if (data.currency) {
@@ -132,11 +157,18 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({ isOpen, onClose, o
   // Sincronizar datos iniciales cuando se abre el modal con una empresa preseleccionada
   useEffect(() => {
     if (isOpen && initialData) {
+      setIsExitManuallyEdited(false);
       const initTicker = (initialData.ticker || '').trim().toUpperCase();
       if (initTicker) setTicker(initTicker);
       if (initialData.companyName) setCompanyName(initialData.companyName);
       if (initialData.currency) setCurrency(initialData.currency);
-      if (initialData.fairValue) setTargetExitPrice(initialData.fairValue.toString());
+      if (initialData.fairValue) setFundamentalFairValue(initialData.fairValue);
+      if (initialData.high52) setFiftyTwoWeekHigh(initialData.high52);
+
+      const prudentInit = initialData.targetExitPrice
+        ? initialData.targetExitPrice.toFixed(2)
+        : calculatePrudentTargetExit(initialData.buyPrice, initialData.high52, initialData.fairValue);
+      if (prudentInit) setTargetExitPrice(prudentInit);
 
       if (initialData.buyPrice && initialData.buyPrice > 0) {
         setBuyPrice(initialData.buyPrice.toString());
@@ -465,42 +497,55 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({ isOpen, onClose, o
           )}
 
           {/* Campo de Salida / Target de Venta (Incentivo de Venta a Tiempo) */}
-          <div className="p-3 rounded-xl bg-cardSecondary/70 border border-borderSubtle space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-textPrimary font-bold text-xs flex items-center space-x-1.5">
-                <Target className="w-3.5 h-3.5 text-accentSky" />
-                <span>Precio Objetivo de Salida ({sym})</span>
-              </label>
-              {fundamentalFairValue && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTargetExitPrice(fundamentalFairValue.toFixed(2));
-                  }}
-                  className="text-[10px] text-accentSky hover:underline font-semibold"
-                  title="Fijar precio objetivo en el Valor Intrínseco Justo calculado por el motor fundamental"
-                >
-                  Cargar Fair Value ({sym}{fundamentalFairValue.toFixed(2)})
-                </button>
-              )}
-            </div>
-            <div className="relative">
-              <span className="absolute left-3 top-2.5 font-bold text-textSecondary font-mono">{sym}</span>
-              <input
-                type="number"
-                step="any"
-                placeholder={fundamentalFairValue ? fundamentalFairValue.toFixed(2) : "Ej: 93.85"}
-                value={targetExitPrice}
-                onChange={(e) => setTargetExitPrice(e.target.value)}
-                className="w-full bg-card border border-borderMedium rounded-lg pl-8 pr-3 py-2 text-textPrimary font-mono font-bold text-sm focus:border-accentSky outline-none"
-              />
-            </div>
-            <p className="text-[10px] text-textSecondary">
-              {fundamentalFairValue 
-                ? `Salida sugerida por convergencia a Valor Justo (${sym}${fundamentalFairValue.toFixed(2)}). Puedes editarla libremente.`
-                : 'Define tu precio objetivo de salida según tu tesis de inversión. La app te avisará para vender cuando se alcance.'}
-            </p>
-          </div>
+          {(() => {
+            const prudentSuggested = calculatePrudentTargetExit(
+              parseFloat(buyPrice) || null,
+              fiftyTwoWeekHigh,
+              fundamentalFairValue
+            );
+            return (
+              <div className="p-3 rounded-xl bg-cardSecondary/70 border border-borderSubtle space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-textPrimary font-bold text-xs flex items-center space-x-1.5">
+                    <Target className="w-3.5 h-3.5 text-accentSky" />
+                    <span>Precio Objetivo de Salida ({sym})</span>
+                  </label>
+                  {prudentSuggested && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsExitManuallyEdited(false);
+                        setTargetExitPrice(prudentSuggested);
+                      }}
+                      className="text-[10px] text-accentSky hover:underline font-semibold"
+                      title="Calcular salida táctica prudente acotada por compresión de recorrido y resistencia de 52 semanas"
+                    >
+                      Salida Prudente ({sym}{prudentSuggested})
+                    </button>
+                  )}
+                </div>
+                <div className="relative">
+                  <span className="absolute left-3 top-2.5 font-bold text-textSecondary font-mono">{sym}</span>
+                  <input
+                    type="number"
+                    step="any"
+                    placeholder={prudentSuggested || "Ej: 93.85"}
+                    value={targetExitPrice}
+                    onChange={(e) => {
+                      setIsExitManuallyEdited(true);
+                      setTargetExitPrice(e.target.value);
+                    }}
+                    className="w-full bg-card border border-borderMedium rounded-lg pl-8 pr-3 py-2 text-textPrimary font-mono font-bold text-sm focus:border-accentSky outline-none"
+                  />
+                </div>
+                <p className="text-[10px] text-textSecondary">
+                  {prudentSuggested
+                    ? `Salida prudente sugerida (${sym}${prudentSuggested})${fundamentalFairValue ? ` · Fair Value teórico: ${sym}${fundamentalFairValue.toFixed(2)}` : ''}${fiftyTwoWeekHigh ? ` · Máx 52S: ${sym}${fiftyTwoWeekHigh.toFixed(2)}` : ''}.`
+                    : 'Define tu precio objetivo de salida según tu tesis de inversión. La app te avisará para vender cuando se alcance.'}
+                </p>
+              </div>
+            );
+          })()}
 
           {/* Fila 3: Comisiones, Fecha y Notas */}
           <div className="grid grid-cols-3 gap-3">
