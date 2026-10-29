@@ -59,9 +59,29 @@ namespace AgenteFinanciero
                         return;
                     }
 
-                    string logFile = Path.Combine(baseDir, "server_error.log");
+                    // Check if node_modules is present (common error when downloading source ZIP from GitHub)
+                    string expressModule = Path.Combine(baseDir, "node_modules", "express");
+                    if (!Directory.Exists(expressModule))
+                    {
+                        MessageBox.Show(
+                            "No se han encontrado las dependencias de la aplicación (falta 'node_modules').\n\n" +
+                            "• Si has descargado el repositorio de GitHub como código fuente:\n" +
+                            "  Abre una consola (CMD o PowerShell) en esta carpeta y ejecuta:\n" +
+                            "    npm install\n" +
+                            "    npm run build\n\n" +
+                            "• Si eres un usuario final y deseas usar la aplicación lista para funcionar:\n" +
+                            "  Descarga y ejecuta el instalador autónomo 'Agente-Financiero-Setup-v1.0.0.zip' o 'Instalador-Agente-Financiero.exe'.",
+                            "Agente Financiero - Dependencias no Encontradas",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Warning
+                        );
+                        return;
+                    }
 
-                    // Launch node server hidden in the background as an independent detached process
+                    string logFile = Path.Combine(baseDir, "server_error.log");
+                    try { if (File.Exists(logFile)) File.Delete(logFile); } catch { }
+
+                    // Launch node server hidden in the background, redirecting standard error to diagnose any startup failure
                     ProcessStartInfo psi = new ProcessStartInfo
                     {
                         FileName = nodeExe,
@@ -69,13 +89,22 @@ namespace AgenteFinanciero
                         WorkingDirectory = baseDir,
                         CreateNoWindow = true,
                         UseShellExecute = false,
-                        RedirectStandardError = false,
+                        RedirectStandardError = true,
                         WindowStyle = ProcessWindowStyle.Hidden
                     };
 
                     Process nodeProc = new Process();
                     nodeProc.StartInfo = psi;
+                    nodeProc.ErrorDataReceived += (s, e) =>
+                    {
+                        if (!string.IsNullOrEmpty(e.Data))
+                        {
+                            try { File.AppendAllText(logFile, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " [ERROR] " + e.Data + Environment.NewLine); } catch { }
+                        }
+                    };
+
                     nodeProc.Start();
+                    nodeProc.BeginErrorReadLine();
 
                     // Wait up to 15 seconds for server to be responsive
                     int maxRetries = 30;

@@ -89,10 +89,11 @@ En el directorio del proyecto se encuentra el ejecutable nativo compilado:
 
 ### 3.2. Instalador para Otros Equipos (Distribución Limpia)
 Para compartir la aplicación con otra persona en su propio PC:
-- **`Instalador-Agente-Financiero.exe`** (o el archivo comprimido **`Agente-Financiero-Setup-v1.0.0.zip`**):
+- **`Agente-Financiero-Setup-v1.0.0.zip`** (o **`Instalador-Agente-Financiero.exe`**):
   - **100% Autónomo**: Contiene su propio runtime portable de Node.js v24. El destinatario **no necesita instalar Node.js ni ninguna herramienta previa**.
   - **Base de Datos Inicial Limpia**: Se inicializa sin datos de compras ("sin datos, inicial"), lista para que el nuevo usuario comience su propia cartera desde cero.
   - **Asistente Visual (Wizard)**: Permite elegir la carpeta de destino (por defecto en `%LOCALAPPDATA%\AgenteFinanciero` sin requerir permisos de administrador), crea accesos directos en el Escritorio y Menú Inicio, y genera su propio desinstalador (`Desinstalar.bat`).
+  - **Descarga desde GitHub**: Para usuarios finales, descargar directamente el archivo `Agente-Financiero-Setup-v1.0.0.zip` (pulsando en el archivo y luego en el botón **Download** de GitHub), descomprimir (*Clic derecho ➔ Extraer todo...*) y ejecutar el instalador. *(Evitar el botón verde "Code ➔ Download ZIP" salvo que se desee trabajar con el código fuente).*
 
 ### 3.3. Modo Desarrollo (Programación e Iteración)
 Si desea continuar desarrollando o depurando la aplicación con recarga en caliente (*Hot Module Replacement*):
