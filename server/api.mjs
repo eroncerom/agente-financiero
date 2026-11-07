@@ -39,7 +39,7 @@ import { MARKETS_CONFIG, scanMarketWithLiveQuotes, syncMarketQuotesInRealtime } 
 import { computeRayDalioMacroState, computeSovereignComparison, computePortfolioDalioQuadrants } from './dalio_macro_engine.mjs';
 import { generarAnalisisTecnico } from './technical_analysis.mjs';
 import { buildCompanyFinancialDeepDive, getCompanyOperationalMomentum } from './financial_history_service.mjs';
-import { handleAIChatQuery, getAIConfig, saveAIConfig, removeAIKey, testGeminiConnection, testAIConnection, generatePortfolioAuditReport } from './ai_assistant_service.mjs';
+import { handleAIChatQuery, getAIConfig, saveAIConfig, removeAIKey, testGeminiConnection, testAIConnection, generatePortfolioAuditReport, runMultiAgentInvestmentCommittee } from './ai_assistant_service.mjs';
 
 initDatabase();
 
@@ -1554,6 +1554,19 @@ app.post('/api/ai/audit-portfolio', async (req, res) => {
   } catch (err) {
     console.error('Error en POST /api/ai/audit-portfolio:', err);
     res.status(500).json({ error: err.message || 'Error al generar auditoría de cartera' });
+  }
+});
+
+// 16.5 COMITÉ DE INVERSIÓN MULTI-AGENTE (FAN-OUT / FAN-IN: 3 SUBAGENTES + CIO)
+app.post('/api/ai/committee/:ticker', async (req, res) => {
+  try {
+    const ticker = (req.params.ticker || 'MSFT').trim().toUpperCase();
+    const mos = req.body?.mos ?? req.query?.mos ?? 20;
+    const result = await runMultiAgentInvestmentCommittee(ticker, mos);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error(`Error en POST /api/ai/committee/${req.params.ticker}:`, err);
+    res.status(500).json({ error: err.message || 'Error al ejecutar el Comité de Inversión Multi-Agente' });
   }
 });
 

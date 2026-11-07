@@ -26,6 +26,13 @@ export interface AIAssistantDrawerProps {
   macroData: any;
 }
 
+interface ToolCallTraceItem {
+  tool: string;
+  args: Record<string, any>;
+  summary: string;
+  duration_ms?: number;
+}
+
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -33,6 +40,7 @@ interface ChatMessage {
   timestamp: string;
   provider?: 'gemini' | 'openai' | 'anthropic' | 'local';
   model?: string;
+  tool_calls?: ToolCallTraceItem[];
 }
 
 export type AIProviderId = 'gemini' | 'openai' | 'anthropic' | 'local';
@@ -429,7 +437,8 @@ Estoy sincronizado en tiempo real con **${selectedCompany.nombre} (${selectedCom
           content: data.reply,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           provider: data.provider,
-          model: data.model
+          model: data.model,
+          tool_calls: Array.isArray(data.tool_calls) ? data.tool_calls : undefined
         };
         setMessages(prev => [...prev, assistantMsg]);
       } else {
@@ -520,6 +529,15 @@ Estoy sincronizado en tiempo real con **${selectedCompany.nombre} (${selectedCom
     },
     ...(selectedCompany
       ? [
+          {
+            label: `🏛️ Comité Multi-Agente (${ticker})`,
+            query: `/comite ${ticker}`,
+            isPrimary: true
+          },
+          {
+            label: `⚡ Comparar ${ticker} vs V (ReAct)`,
+            query: `Compara ${ticker} frente a V usando tus herramientas de Pilar 1 y análisis técnico y dime cuál ofrece mejor Margen de Seguridad.`
+          },
           {
             label: `¿Por qué ${ticker} está ${estadoLabel}?`,
             query: `¿Por qué ${ticker} está ${estadoLabel}? Detalla su margen de seguridad y valoración.`
@@ -842,6 +860,38 @@ Estoy sincronizado en tiempo real con **${selectedCompany.nombre} (${selectedCom
                     <p className="whitespace-pre-wrap">{msg.content}</p>
                   ) : (
                     <>
+                      {msg.tool_calls && msg.tool_calls.length > 0 && (
+                        <div className="mb-2.5 p-2 rounded-xl bg-canvas/80 border border-accentSky/30 space-y-1">
+                          <div className="flex items-center justify-between text-[10px] font-bold text-accentSky uppercase tracking-wider">
+                            <span className="flex items-center space-x-1">
+                              <Sparkles className="w-3 h-3" />
+                              <span>Herramientas invocadas autónomamente ({msg.tool_calls.length})</span>
+                            </span>
+                            <span className="font-mono text-[9px] text-emerald-400">ReAct Tool Calling</span>
+                          </div>
+                          {msg.tool_calls.map((tc, tIdx) => (
+                            <div
+                              key={tIdx}
+                              className="px-2 py-1 rounded bg-cardSecondary/90 border border-borderSubtle text-[10px] font-mono flex items-start justify-between gap-2"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <span className="text-emerald-400 font-bold">⚡ {tc.tool}</span>
+                                <span className="text-textSecondary ml-1">
+                                  ({Object.entries(tc.args || {}).map(([k, v]) => `${k}=${v}`).join(', ')})
+                                </span>
+                                <p className="text-[10px] text-textPrimary font-sans truncate mt-0.5">
+                                  {tc.summary}
+                                </p>
+                              </div>
+                              {tc.duration_ms != null && (
+                                <span className="text-[9px] text-textSecondary flex-shrink-0">
+                                  {tc.duration_ms}ms
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       <SimpleMarkdown content={msg.content} />
                       <div className="mt-2 pt-1.5 border-t border-borderSubtle/50 flex items-center justify-between text-[10px] text-textSecondary/70 font-mono">
                         <span>

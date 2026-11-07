@@ -19,7 +19,8 @@ import {
   Scale,
   BarChart3,
   CandlestickChart,
-  GripVertical
+  GripVertical,
+  Users
 } from 'lucide-react';
 import { Pilar1Result, Pilar1ScanResponse, DiscardedCompanyDetail } from '../types';
 import { DiscardedDetailModal } from './DiscardedDetailModal';
@@ -27,6 +28,7 @@ import { ValueFilterModal } from './ValueFilterModal';
 import { StockPriceChart } from './StockPriceChart';
 import { AssetComparisonModal } from './AssetComparisonModal';
 import { ValuationModelsModal } from './ValuationModelsModal';
+import { InvestmentCommitteeModal } from './InvestmentCommitteeModal';
 
 interface FundamentalColumnProps {
   scanData: Pilar1ScanResponse | null;
@@ -72,6 +74,7 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
   const [isValueFilterModalOpen, setIsValueFilterModalOpen] = React.useState(false);
   const [isComparisonModalOpen, setIsComparisonModalOpen] = React.useState(false);
   const [isValuationModelsModalOpen, setIsValuationModelsModalOpen] = React.useState(false);
+  const [isCommitteeModalOpen, setIsCommitteeModalOpen] = React.useState(false);
   const [showChart, setShowChart] = React.useState(false);
   const [isDragOver, setIsDragOver] = React.useState(false);
   const dragCounterRef = React.useRef(0);
@@ -1563,6 +1566,17 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
               <span>Radiografía {selectedCompany.ticker}</span>
             </button>
           )}
+          {selectedCompany && (
+            <button
+              type="button"
+              onClick={() => setIsCommitteeModalOpen(true)}
+              className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-purple-500/20 to-accentSky/20 hover:from-purple-500/30 hover:to-accentSky/30 text-accentSky border border-accentSky/40 font-bold text-xs shadow-sm transition group"
+              title={`Convocar al Comité de Inversión Multi-Agente (3 Subagentes Paralelos + CIO) sobre ${selectedCompany.nombre}`}
+            >
+              <Users className="w-4 h-4 text-accentSky group-hover:scale-110 transition-transform" />
+              <span>Comité Multi-Agente</span>
+            </button>
+          )}
           {selectedCompany && onOpenAIChat && (
             <button
               type="button"
@@ -1644,6 +1658,14 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
           initialSummary={selectedCompany.resumen_valoracion_11}
         />
       )}
+
+      {/* Modal del Comité de Inversión Multi-Agente (3 Subagentes en Paralelo + CIO) */}
+      <InvestmentCommitteeModal
+        isOpen={isCommitteeModalOpen}
+        ticker={selectedCompany?.ticker || 'MSFT'}
+        mosDiscount={mosDiscount}
+        onClose={() => setIsCommitteeModalOpen(false)}
+      />
     </section>
   );
 };
