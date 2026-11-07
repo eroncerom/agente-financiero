@@ -22,6 +22,7 @@ import {
 import { DiscardedCompanyDetail } from '../types';
 import { StockPriceChart } from './StockPriceChart';
 import { CompanyFinancialDeepDiveModal } from './CompanyFinancialDeepDiveModal';
+import { ValuationModelsModal } from './ValuationModelsModal';
 
 interface DiscardedDetailModalProps {
   isOpen: boolean;
@@ -47,6 +48,7 @@ export const DiscardedDetailModal: React.FC<DiscardedDetailModalProps> = ({
   if (!isOpen || !company) return null;
 
   const [isLocalDeepDiveOpen, setIsLocalDeepDiveOpen] = React.useState(false);
+  const [isValuationModelsOpen, setIsValuationModelsOpen] = React.useState(false);
   const initialP0 = company.precio_cierre_P0 || 0;
   const [dynamicLivePrice, setDynamicLivePrice] = React.useState<number>(initialP0);
   React.useEffect(() => {
@@ -641,14 +643,19 @@ export const DiscardedDetailModal: React.FC<DiscardedDetailModalProps> = ({
 
           {/* Grid de los 4 niveles */}
           <div className="grid grid-cols-4 gap-2 font-mono text-center">
-            {/* 1. Fair Value */}
-            <div className={`p-2 rounded-xl border ${
-              p0 <= fairValue ? 'bg-card border-accentSky/40' : 'bg-card border-borderSubtle'
-            }`}>
-              <span className="text-[9px] uppercase tracking-wider text-textSecondary block">Fair Value (0% MoS)</span>
-              <span className="text-sm font-bold text-textPrimary block mt-0.5">{currSym}{fairValue.toFixed(2)}</span>
-              <span className="text-[9px] text-textSecondary block mt-0.5 font-sans">Valor Intrínseco Justo</span>
-            </div>
+            {/* 1. Fair Value (Clicable para abrir los 11 Modelos) */}
+            <button
+              type="button"
+              onClick={() => setIsValuationModelsOpen(true)}
+              className={`p-2 rounded-xl border text-center transition cursor-pointer group ${
+                p0 <= fairValue ? 'bg-card border-accentSky/50 hover:border-accentSky' : 'bg-card border-accentSky/30 hover:border-accentSky'
+              }`}
+              title="Haz clic para abrir el desglose de los 11 Modelos de Valoración"
+            >
+              <span className="text-[9px] uppercase tracking-wider text-accentSky font-bold block group-hover:underline">Fair Value (11 Modelos ↗)</span>
+              <span className="text-sm font-bold text-textPrimary block mt-0.5 underline decoration-dotted">{currSym}{fairValue.toFixed(2)}</span>
+              <span className="text-[9px] text-accentSky block mt-0.5 font-sans">Ver los 11 modelos</span>
+            </button>
 
             {/* 2. MoS 10% (Buffett Quality / Suelo Real) */}
             <button
@@ -899,6 +906,19 @@ export const DiscardedDetailModal: React.FC<DiscardedDetailModalProps> = ({
         isOpen={isLocalDeepDiveOpen}
         ticker={company.ticker}
         onClose={() => setIsLocalDeepDiveOpen(false)}
+      />
+
+      {/* Modal de Desglose de los 11 Modelos de Valoración */}
+      <ValuationModelsModal
+        isOpen={isValuationModelsOpen}
+        onClose={() => setIsValuationModelsOpen(false)}
+        ticker={company.ticker}
+        companyName={company.nombre}
+        currentPrice={p0}
+        fairValue={fairValue}
+        currencySymbol={currSym}
+        initialModels={company.modelos_valoracion_11}
+        initialSummary={company.resumen_valoracion_11}
       />
     </div>
   );

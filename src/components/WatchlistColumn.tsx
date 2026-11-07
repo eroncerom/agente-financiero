@@ -13,10 +13,12 @@ import {
   GripVertical,
   Award,
   BellRing,
-  Zap
+  Zap,
+  SlidersHorizontal
 } from 'lucide-react';
 import { WatchlistItem, Currency } from '../types';
 import { WatchlistFullModal } from './WatchlistFullModal';
+import { ValuationModelsModal } from './ValuationModelsModal';
 
 interface WatchlistColumnProps {
   watchlist: WatchlistItem[];
@@ -51,6 +53,7 @@ export const WatchlistColumn: React.FC<WatchlistColumnProps> = ({
   const [isAdding, setIsAdding] = useState(false);
   const [isInputExpanded, setIsInputExpanded] = useState(false);
   const [isFullModalOpen, setIsFullModalOpen] = useState(false);
+  const [selectedTickerForValuation, setSelectedTickerForValuation] = useState<string | null>(null);
   const [draggingTicker, setDraggingTicker] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [justAddedTicker, setJustAddedTicker] = useState<string | null>(null);
@@ -508,6 +511,22 @@ export const WatchlistColumn: React.FC<WatchlistColumnProps> = ({
                         {item.current_price <= item.techo_mos ? 'MoS' : item.fair_value && item.current_price <= item.fair_value ? 'FV' : 'Sobre'}
                       </span>
                     )}
+
+                    {/* Acceso directo a los 11 modelos de valoración */}
+                    {item.fair_value ? (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedTickerForValuation(item.ticker);
+                        }}
+                        className="text-[9px] font-bold font-mono px-1 py-0.2 rounded border bg-card border-borderSubtle text-accentSky hover:bg-accentSky/15 hover:border-accentSky/40 transition flex items-center space-x-0.5"
+                        title={`Fair Value (11 Modelos): $${item.fair_value.toFixed(2)} - Click para ver desglose`}
+                      >
+                        <SlidersHorizontal className="w-2.5 h-2.5 opacity-80" />
+                        <span>${item.fair_value.toFixed(1)}</span>
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -553,6 +572,18 @@ export const WatchlistColumn: React.FC<WatchlistColumnProps> = ({
         onAuditInCentralPillar={onAuditInCentralPillar}
         onRefresh={onRefresh}
       />
+
+      {/* MODAL DE DESGLOSE DE LOS 11 MODELOS DE VALORACIÓN */}
+      {selectedTickerForValuation && (
+        <ValuationModelsModal
+          isOpen={Boolean(selectedTickerForValuation)}
+          onClose={() => setSelectedTickerForValuation(null)}
+          ticker={selectedTickerForValuation}
+          fairValue={watchlist.find(w => w.ticker === selectedTickerForValuation)?.fair_value}
+          currentPrice={watchlist.find(w => w.ticker === selectedTickerForValuation)?.current_price}
+          companyName={watchlist.find(w => w.ticker === selectedTickerForValuation)?.company_name}
+        />
+      )}
     </div>
   );
 };

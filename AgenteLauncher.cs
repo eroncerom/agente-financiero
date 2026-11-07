@@ -10,7 +10,8 @@ namespace AgenteFinanciero
     static class Program
     {
         private const string AppUrl = "http://localhost:3001";
-        private const string HealthUrl = "http://localhost:3001/api/portfolio";
+        private const string HealthUrl = "http://127.0.0.1:3001/api/health";
+        private const string FallbackHealthUrl = "http://localhost:3001/api/portfolio";
 
         [STAThread]
         static void Main(string[] args)
@@ -30,17 +31,19 @@ namespace AgenteFinanciero
                 CreateDesktopShortcut(baseDir);
 
                 // 2. Check if server is already responding
-                bool isRunning = IsServerResponding(HealthUrl, 1000);
+                bool isRunning = IsServerResponding(HealthUrl, 1000) || IsServerResponding(FallbackHealthUrl, 1000);
 
                 if (!isRunning)
                 {
-                    // Locate node.exe
+                    // Locate node.exe (>= v22.5 required for native node:sqlite)
                     string nodeExe = FindNodeExecutable(baseDir);
                     if (string.IsNullOrEmpty(nodeExe))
                     {
                         MessageBox.Show(
-                            "No se encontró el ejecutable de Node.js (node.exe).\n\nPor favor, asegúrate de que Node.js esté instalado o que node.exe esté junto a la aplicación.",
-                            "Agente Financiero - Error",
+                            "No se encontró una versión compatible de Node.js (se requiere Node.js v22.5+ o v24+ para soporte nativo de SQLite).\n\n" +
+                            "• Si has descargado el código fuente de GitHub, instala Node.js v22 LTS / v24 desde https://nodejs.org\n" +
+                            "• O bien ejecuta 'Instalador-Agente-Financiero.exe' que ya incluye su propio motor Node.js v24 integrado.",
+                            "Agente Financiero - Node.js Requerido",
                             MessageBoxButtons.OK,
                             MessageBoxIcon.Error
                         );
@@ -59,37 +62,31 @@ namespace AgenteFinanciero
                         return;
                     }
 
-                    // Check if node_modules is present (common error when downloading source ZIP from GitHub)
+                    // Auto-setup if user downloaded the GitHub repository ZIP (missing node_modules or dist)
                     string expressModule = Path.Combine(baseDir, "node_modules", "express");
-                    if (!Directory.Exists(expressModule))
+                    string distIndex = Path.Combine(baseDir, "dist", "index.html");
+                    if (!Directory.Exists(expressModule) || !File.Exists(distIndex))
                     {
-                        MessageBox.Show(
-                            "No se han encontrado las dependencias de la aplicación (falta 'node_modules').\n\n" +
-                            "• Si has descargado el repositorio de GitHub como código fuente:\n" +
-                            "  Abre una consola (CMD o PowerShell) en esta carpeta y ejecuta:\n" +
-                            "    npm install\n" +
-                            "    npm run build\n\n" +
-                            "• Si eres un usuario final y deseas usar la aplicación lista para funcionar:\n" +
-                            "  Descarga y ejecuta el instalador autónomo 'Agente-Financiero-Setup-v1.0.0.zip' o 'Instalador-Agente-Financiero.exe'.",
-                            "Agente Financiero - Dependencias no Encontradas",
-                            MessageBoxButtons.OK,
-                            MessageBoxIcon.Warning
-                        );
-                        return;
+                        bool setupOk = EnsureDependenciesAndBuild(baseDir, Directory.Exists(expressModule), File.Exists(distIndex));
+                        if (!setupOk)
+                        {
+                            return;
+                        }
                     }
 
                     string logFile = Path.Combine(baseDir, "server_error.log");
                     try { if (File.Exists(logFile)) File.Delete(logFile); } catch { }
 
-                    // Launch node server hidden in the background, redirecting standard error to diagnose any startup failure
+                    // Launch node server hidden in the background
                     ProcessStartInfo psi = new ProcessStartInfo
                     {
                         FileName = nodeExe,
-                        Arguments = "\"" + serverScript + "\"",
+                        Arguments = "--no-warnings \"" + serverScript + "\"",
                         WorkingDirectory = baseDir,
                         CreateNoWindow = true,
                         UseShellExecute = false,
                         RedirectStandardError = true,
+                        RedirectStandardOutput = true,
                         WindowStyle = ProcessWindowStyle.Hidden
                     };
 
@@ -99,17 +96,25 @@ namespace AgenteFinanciero
                     {
                         if (!string.IsNullOrEmpty(e.Data))
                         {
-                            try { File.AppendAllText(logFile, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " [ERROR] " + e.Data + Environment.NewLine); } catch { }
+                            try { File.AppendAllText(logFile, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " [STDERR] " + e.Data + Environment.NewLine); } catch { }
+                        }
+                    };
+                    nodeProc.OutputDataReceived += (s, e) =>
+                    {
+                        if (!string.IsNullOrEmpty(e.Data) && (e.Data.Contains("Error") || e.Data.Contains("error") || e.Data.Contains("Exception")))
+                        {
+                            try { File.AppendAllText(logFile, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " [STDOUT] " + e.Data + Environment.NewLine); } catch { }
                         }
                     };
 
                     nodeProc.Start();
                     nodeProc.BeginErrorReadLine();
+                    nodeProc.BeginOutputReadLine();
 
-                    // Wait up to 15 seconds for server to be responsive
-                    int maxRetries = 30;
+                    // Wait up to 25 seconds for server to be responsive
+                    int maxRetries = 50;
                     int retry = 0;
-                    while (retry < maxRetries && !IsServerResponding(HealthUrl, 500))
+                    while (retry < maxRetries && !IsServerResponding(HealthUrl, 600) && !IsServerResponding(FallbackHealthUrl, 600))
                     {
                         if (nodeProc.HasExited)
                         {
@@ -119,7 +124,7 @@ namespace AgenteFinanciero
                         retry++;
                     }
 
-                    if (!IsServerResponding(HealthUrl, 1000))
+                    if (!IsServerResponding(HealthUrl, 1200) && !IsServerResponding(FallbackHealthUrl, 1200))
                     {
                         string errorDetails = "";
                         if (File.Exists(logFile))
@@ -130,7 +135,11 @@ namespace AgenteFinanciero
                         string message = "El servidor de la aplicación no pudo iniciarse correctamente.";
                         if (!string.IsNullOrWhiteSpace(errorDetails))
                         {
-                            message += "\n\nDetalle del error:\n" + (errorDetails.Length > 400 ? errorDetails.Substring(errorDetails.Length - 400) : errorDetails);
+                            message += "\n\nDetalle técnico registrado:\n" + (errorDetails.Length > 550 ? errorDetails.Substring(errorDetails.Length - 550) : errorDetails);
+                        }
+                        else if (nodeProc.HasExited)
+                        {
+                            message += "\n\nEl proceso de Node.js finalizó prematuramente (Código: " + nodeProc.ExitCode + "). Verifica que tu versión de Node.js sea v22.5+ o v24+.";
                         }
                         else
                         {
@@ -161,20 +170,87 @@ namespace AgenteFinanciero
             }
         }
 
+        private static bool EnsureDependenciesAndBuild(string baseDir, bool hasNodeModules, bool hasDist)
+        {
+            try
+            {
+                string cmdArgs = "";
+                if (!hasNodeModules && !hasDist)
+                {
+                    cmdArgs = "/c echo ================================================================= && " +
+                              "echo [Agente Financiero] Primera ejecucion desde repositorio GitHub && " +
+                              "echo Instalando dependencias y compilando interfaz (1-2 minutos)... && " +
+                              "echo ================================================================= && " +
+                              "npm install && npm run build";
+                }
+                else if (!hasNodeModules)
+                {
+                    cmdArgs = "/c echo [Agente Financiero] Instalando dependencias necesarias (npm install)... && npm install";
+                }
+                else
+                {
+                    cmdArgs = "/c echo [Agente Financiero] Compilando interfaz grafica (npm run build)... && npm run build";
+                }
+
+                ProcessStartInfo psi = new ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    Arguments = cmdArgs,
+                    WorkingDirectory = baseDir,
+                    UseShellExecute = true,
+                    WindowStyle = ProcessWindowStyle.Normal
+                };
+
+                Process proc = Process.Start(psi);
+                proc.WaitForExit();
+
+                string expressModule = Path.Combine(baseDir, "node_modules", "express");
+                if (!Directory.Exists(expressModule))
+                {
+                    MessageBox.Show(
+                        "No se pudieron instalar automáticamente las dependencias ('node_modules').\n\n" +
+                        "• Si descargaste el código fuente de GitHub, abre una terminal en esta carpeta y ejecuta:\n" +
+                        "    npm install\n" +
+                        "    npm run build\n\n" +
+                        "• O bien ejecuta 'Instalador-Agente-Financiero.exe', que ya incluye todas las dependencias y Node.js v24 listos para usar.",
+                        "Agente Financiero - Dependencias Pendientes",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning
+                    );
+                    return false;
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "Error preparando las dependencias iniciales:\n" + ex.Message,
+                    "Agente Financiero - Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error
+                );
+                return false;
+            }
+        }
+
         private static string FindNodeExecutable(string baseDir)
         {
             // 1. Check local bundled node.exe
             string localNode = Path.Combine(baseDir, "node.exe");
-            if (File.Exists(localNode)) return localNode;
+            if (File.Exists(localNode) && IsNodeVersionSupported(localNode)) return localNode;
 
-            // 2. Check standard Program Files installation
+            // 2. Check local dist-package/node.exe (if running from repo root)
+            string distPkgNode = Path.Combine(baseDir, "dist-package", "node.exe");
+            if (File.Exists(distPkgNode) && IsNodeVersionSupported(distPkgNode)) return distPkgNode;
+
+            // 3. Check standard Program Files installation
             string pfNode = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "nodejs", "node.exe");
-            if (File.Exists(pfNode)) return pfNode;
+            if (File.Exists(pfNode) && IsNodeVersionSupported(pfNode)) return pfNode;
 
             string pfx86Node = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "nodejs", "node.exe");
-            if (File.Exists(pfx86Node)) return pfx86Node;
+            if (File.Exists(pfx86Node) && IsNodeVersionSupported(pfx86Node)) return pfx86Node;
 
-            // 3. Check system PATH
+            // 4. Check system PATH
             string pathEnv = Environment.GetEnvironmentVariable("PATH");
             if (!string.IsNullOrEmpty(pathEnv))
             {
@@ -184,13 +260,29 @@ namespace AgenteFinanciero
                     {
                         if (string.IsNullOrWhiteSpace(dir)) continue;
                         string cand = Path.Combine(dir.Trim(), "node.exe");
-                        if (File.Exists(cand)) return cand;
+                        if (File.Exists(cand) && IsNodeVersionSupported(cand)) return cand;
                     }
                     catch { }
                 }
             }
 
             return null;
+        }
+
+        private static bool IsNodeVersionSupported(string nodePath)
+        {
+            try
+            {
+                FileVersionInfo fvi = FileVersionInfo.GetVersionInfo(nodePath);
+                // node:sqlite requires Node.js >= 22.5.0
+                if (fvi.FileMajorPart > 22) return true;
+                if (fvi.FileMajorPart == 22 && fvi.FileMinorPart >= 5) return true;
+                return false;
+            }
+            catch
+            {
+                return true;
+            }
         }
 
         private static bool IsServerResponding(string url, int timeoutMs)

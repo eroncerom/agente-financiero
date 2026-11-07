@@ -9,6 +9,12 @@ const CACHE_DIR = path.join(__dirname, 'data', 'sec_cache');
 const TICKER_MAP_PATH = path.join(CACHE_DIR, 'company_tickers.json');
 const SEC_USER_AGENT = 'AgenteFinanciero/1.0 admin@agentefinanciero.com';
 
+try {
+  if (!fs.existsSync(CACHE_DIR)) {
+    fs.mkdirSync(CACHE_DIR, { recursive: true });
+  }
+} catch {}
+
 // Cache en memoria para respuestas procesadas (TTL 30 minutos)
 const processedCache = new Map();
 const CACHE_TTL_MS = 30 * 60 * 1000;
@@ -36,11 +42,24 @@ function computeMedian(arr) {
 }
 
 /**
- * Obtiene el mapa Ticker -> CIK
+ * Obtiene el mapa Ticker -> CIK (descarga automáticamente company_tickers.json de la SEC si no existe en contenedor Cloud)
  */
-function getTickerCik(ticker) {
+async function getTickerCik(ticker) {
   try {
-    if (!fs.existsSync(TICKER_MAP_PATH)) return null;
+    if (!fs.existsSync(TICKER_MAP_PATH)) {
+      if (!fs.existsSync(CACHE_DIR)) {
+        fs.mkdirSync(CACHE_DIR, { recursive: true });
+      }
+      const res = await fetch('https://www.sec.gov/files/company_tickers.json', {
+        headers: { 'User-Agent': SEC_USER_AGENT }
+      });
+      if (res.ok) {
+        const text = await res.text();
+        fs.writeFileSync(TICKER_MAP_PATH, text, 'utf-8');
+      } else {
+        return null;
+      }
+    }
     const raw = JSON.parse(fs.readFileSync(TICKER_MAP_PATH, 'utf-8'));
     const clean = ticker.trim().toUpperCase().replace('.', '-');
     const entry = Object.values(raw).find(e => e.ticker?.toUpperCase() === clean);
@@ -510,7 +529,7 @@ export async function buildCompanyFinancialDeepDive(ticker) {
     return cached.data;
   }
 
-  const cik = getTickerCik(cleanTicker);
+  const cik = await getTickerCik(cleanTicker);
   if (!cik) {
     return null;
   }

@@ -515,7 +515,8 @@ export function evaluarFiltroValue(empresa, p0Custom = null, fairValueCustom = n
   let datoValStr = '';
   if (peTtm != null) {
     const signStr = peDiscountPct >= 0 ? `-${peDiscountPct}% dto.` : `+${Math.abs(peDiscountPct)}% prima`;
-    datoValStr = `PER TTM: ${peTtm}x${peFwd ? ` (Fwd: ${peFwd}x)` : ''} vs Media Hist. ~${histPe}x (${signStr}) | Dto. FV: -${discFairPct}%`;
+    const fvStr = discFairPct >= 0 ? `Dto. FV: -${discFairPct}%` : `Prima s/FV: +${Math.abs(discFairPct)}%`;
+    datoValStr = `PER TTM: ${peTtm}x${peFwd ? ` (Fwd: ${peFwd}x)` : ''} vs Media Hist. ~${histPe}x (${signStr}) | ${fvStr}`;
   } else {
     datoValStr = `PER TTM: N/A (Beneficio neto negativo) | PER Fwd: ${peFwd ? peFwd + 'x' : 'N/A'}`;
   }

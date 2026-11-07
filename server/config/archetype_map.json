@@ -151,6 +151,13 @@
   },
   "overrides_ticker": {
     "BRK-B": { "arquetipo": "HOLDING_CONGLOMERADO", "justificacion": "Única 'Multi-Sector Holdings'; explicitado por seguridad ante cambios de taxonomía" },
-    "CEG": { "arquetipo": "CICLICA_INDUSTRIAL", "justificacion": "GICS la clasifica como Electric Utilities, pero es un productor nuclear no regulado que vende a precio de mercado con payout ~15%: el DDM regulado no aplica (auditoría C5)" }
+    "CEG": { "arquetipo": "CICLICA_INDUSTRIAL", "justificacion": "GICS la clasifica como Electric Utilities, pero es un productor nuclear no regulado que vende a precio de mercado con payout ~15%: el DDM regulado no aplica (auditoría C5)" },
+    "ITX.MC": { "arquetipo": "COMPOUNDER_TECH", "justificacion": "Líder global retail textil con ventaja competitiva foso, cadena de suministro integrada por datos, ROIC 34% y caja neta positiva" },
+    "ANA.MC": { "arquetipo": "CICLICA_INDUSTRIAL", "justificacion": "Holding de infraestructuras, concesiones y renovables: valoración por capacidad de beneficios normalizados mid-cycle" },
+    "FER.MC": { "arquetipo": "COMPOUNDER_TECH", "justificacion": "Monopolios concesionales de peaje (Managed Lanes y 407 ETR) con fijación dinámica de tarifas y flujos libres a la matriz" },
+    "CLNX.MC": { "arquetipo": "COMPOUNDER_TECH", "justificacion": "Torres de telecomunicaciones con contratos a 25 años indexados a inflación valoradas sobre Flujo de Caja Recurrente Apalancado (RLFCF)" },
+    "TSLA": { "arquetipo": "COMPOUNDER_TECH", "justificacion": "Plataforma de software autónomo (FSD), almacenamiento energético y robótica: crecimiento tecnológico y flujos operativos compounder" },
+    "MELI": { "arquetipo": "COMPOUNDER_TECH", "justificacion": "Ecosistema líder de comercio electrónico y fintech en América Latina: plataforma digital asset-light con crecimiento secular" },
+    "AXON": { "arquetipo": "COMPOUNDER_TECH", "justificacion": "Plataforma de software en la nube (Evidence.com) y dispositivos de seguridad pública con ingresos recurrentes de alto ROIC" }
   }
 }

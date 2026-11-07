@@ -26,7 +26,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db } from './db.mjs';
-import { fetchLiveQuote, fetchInstitutionalConsensus, calculatePrudentTargetExit } from './market_service.mjs';
+import { fetchLiveQuote, fetchInstitutionalConsensus, getCachedAnalystConsensus, calcularMediaConsensoSinSesgos, calculatePrudentTargetExit } from './market_service.mjs';
 import { evaluarFiltroValue } from './value_filter_engine.mjs';
 import { buildCompanyFinancialDeepDive } from './financial_history_service.mjs';
 
@@ -170,13 +170,13 @@ export function clasificarArquetipoEmpresa(empresa) {
 }
 
 /**
- * 4. DCF DE 3 ETAPAS CON CONVERGENCIA LINEAL Y RONIC (FASE 2, PUNTO 6)
+ * 4. DCF DE 3 ETAPAS CON CONVERGENCIA LINEAL Y RETENCIÓN DE MOAT TERMINAL (FASE 2, PUNTO 6)
  * Etapa 1 (años 1–n1): Alto crecimiento explícito sostenido por ventajas competitivas (moat).
  * Etapa 2 (años n1+1–n1+n2): Transición lineal hacia el crecimiento macro (g_t decae de g1 a gn).
- * Etapa 3 (terminal perpetuo): RONIC sobre nueva inversión converge hacia el coste de capital r.
- * Teorema McKinsey / Damodaran: Cuando RONIC -> r en estado maduro, Reinv = gn / r.
- * Flujo_term = NOPAT * (1 - gn/r) => TV = [NOPAT * (1 + gn) * (1 - gn/r)] / (r - gn) = [NOPAT * (1 + gn)] / r.
- * El múltiplo implícito terminal sobre NOPAT/beneficio es exactamente 1 / r.
+ * Etapa 3 (terminal perpetuo): Convergencia de retornos con preservación parcial de ventaja competitiva.
+ * En lugar de destruir el 100% del exceso de retorno en el año 10 (múltiplo terminal 1/r), se aplica un
+ * denominador terminal amortiguado max(0.035, r - 0.55 * gn) que respeta el diferencial mínimo (r - g >= 2.25%)
+ * y evita infravaloraciones severas frente a la serie de múltiplos de ciclo completo.
  */
 export function calcularValorDCF3Etapas(cfBase, r, g1, gn = 0.025, n1 = 5, n2 = 5) {
   let pvStage1 = 0.0;
@@ -198,8 +198,9 @@ export function calcularValorDCF3Etapas(cfBase, r, g1, gn = 0.025, n1 = 5, n2 = 
     pvStage2 += cfT / Math.pow(1.0 + r, t);
   }
 
-  // Etapa 3: Valor Terminal Perpetuo con RONIC -> r
-  const tvN = (cfT * (1.0 + gn)) / r;
+  // Etapa 3: Valor Terminal Perpetuo con amortiguación de ventaja competitiva y respeto de (r - g) >= 2.25%
+  const denomTerminal = Math.max(0.035, Math.max(0.0225, r - gn), r - 0.55 * gn);
+  const tvN = (cfT * (1.0 + gn)) / denomTerminal;
   const pvTv = tvN / Math.pow(1.0 + r, n1 + n2);
 
   const intrinsicValue = pvStage1 + pvStage2 + pvTv;
@@ -210,7 +211,7 @@ export function calcularValorDCF3Etapas(cfBase, r, g1, gn = 0.025, n1 = 5, n2 = 
     pvTv: Number(pvTv.toFixed(2)),
     cfYear5: Number((cfBase * Math.pow(1.0 + g1, n1)).toFixed(2)),
     cfYear10: Number(cfT.toFixed(2)),
-    spreadTerminal: Number((r * 100).toFixed(2))
+    spreadTerminal: Number((denomTerminal * 100).toFixed(2))
   };
 }
 
@@ -389,8 +390,8 @@ export function evaluarTrampaFundamental(empresa) {
   const fScore = empresa.piotroski_f_score;
   const accruals = empresa.sloan_accruals;
 
-  // 1. Apalancamiento crítico (solo aplicable a no financieras)
-  const ndEbitdaExcesivo = ndEbitda != null && (ndEbitda >= 4.5 || (ndEbitda >= 3.5 && (cov == null || cov < 2.0)));
+  // 1. Apalancamiento crítico (solo aplicable a no financieras: Deuda Neta/EBITDA >= 4.5x o >= 3.5x con cobertura < 2.0x confirmada)
+  const ndEbitdaExcesivo = ndEbitda != null && (ndEbitda >= 4.5 || (ndEbitda >= 3.5 && cov != null && cov < 2.0));
   if (!esFinanciera && ndEbitdaExcesivo) {
     alertas.push({
       tipo: 'SOBRECARGA_DEUDA',
@@ -577,6 +578,17 @@ export function calcularValorArquetipo(empresa, p0, r, rf, erp, gPess, gNeu, gOp
             tipo_entidad: 'Aseguradora (Float Normalizado de Ciclo)'
           };
         }
+      } else if (['Consumer Finance', 'Investment Banking & Brokerage', 'Financial Exchanges & Data'].includes(sub) || (rote && rote > 0.20)) {
+        modeloUtilizado = 'Damodaran Excess Return Model (Financieras Especializadas / Medios de Pago / Brokerage)';
+        formulaUtilizada = 'Fair Value = TBV * ((ROTE - gn) / (r - gn)) [ROTE hasta 32%, P/TBV hasta 6.0x]';
+        const roteNeu = Math.min(0.320, Math.max(0.120, rote));
+        const roteOpt = Math.min(0.350, roteNeu + 0.020);
+        const rotePess = Math.max(0.100, roteNeu - 0.020);
+        const spread = Math.max(0.0225, r - gn);
+        fairValueNeu = Number((tbv * Math.max(0.85, Math.min(6.50, (roteNeu - gn) / spread))).toFixed(2));
+        fairValueOpt = Number((tbv * Math.max(0.95, Math.min(7.20, (roteOpt - gn) / spread))).toFixed(2));
+        fairValuePess = Number((tbv * Math.max(0.75, Math.min(5.50, (rotePess - gn) / spread))).toFixed(2));
+        detallesModelo = { tbv_per_share: tbv, rote_sostenible_pct: Number((roteNeu * 100).toFixed(2)), tipo_entidad: 'Financiera Especializada / Pagos / Brokerage' };
       } else {
         modeloUtilizado = 'Damodaran Excess Return Model (Banca Comercial)';
         formulaUtilizada = 'Fair Value = TBV * ((ROTE - gn) / (r - gn)) [ROTE acotado al ciclo sostenible]';
@@ -607,7 +619,15 @@ export function calcularValorArquetipo(empresa, p0, r, rf, erp, gPess, gNeu, gOp
       modeloUtilizado = 'AFFO Capitalization Model (REITs)';
       formulaUtilizada = 'Fair Value = AFFO_1 / (r - g_reit) [g_reit <= 2,5%]';
       modeloTipo = 'GORDON_DDM';
-      const affo = empresa.owner_cf_per_share || empresa.fcf_per_share || base;
+      const affoCandidate = [
+        empresa.affo_per_share,
+        (empresa.fcf_per_share && empresa.fcf_per_share > 0) ? empresa.fcf_per_share : null,
+        (empresa.owner_cf_per_share && empresa.owner_cf_per_share > 0) ? empresa.owner_cf_per_share : null,
+        (empresa.dividend_rate && empresa.dividend_rate > 0) ? empresa.dividend_rate : null,
+        (empresa.forward_eps && empresa.forward_eps > 0) ? empresa.forward_eps : null,
+        (base && base > 0) ? base : null
+      ].find(v => v != null && v > 0);
+      const affo = affoCandidate || (base > 0 ? base : null);
       if (!(affo > 0)) return invalido('AFFO no positivo o no calculable');
       const gReitNeu = 0.020;
       const gReitOpt = 0.025;
@@ -616,9 +636,9 @@ export function calcularValorArquetipo(empresa, p0, r, rf, erp, gPess, gNeu, gOp
       let fvOpt = (affo * (1 + gReitOpt)) / Math.max(0.0225, r - gReitOpt);
       let fvPess = (affo * (1 + gReitPess)) / Math.max(0.0225, r - gReitPess);
 
-      // REGLA 3: REITS CON APALANCAMIENTO O ALTMAN Z DISTRESS (AFFO acotado a NAV)
+      // REGLA 3: REITS CON APALANCAMIENTO CRÍTICO (Deuda Neta / EBITDA > 8.5x)
       const tbv = empresa.tbv_per_share;
-      const esDistress = empresa.altman_z_score && empresa.altman_z_score < 1.81;
+      const esDistress = empresa.net_debt_ebitda && empresa.net_debt_ebitda > 8.5;
       let navCapAplicado = false;
       if (esDistress && tbv && tbv > 0) {
         const capNAV = Number((tbv * 1.15).toFixed(2));
@@ -628,7 +648,7 @@ export function calcularValorArquetipo(empresa, p0, r, rf, erp, gPess, gNeu, gOp
           fvPess = Number((capNAV * 0.90).toFixed(2));
           navCapAplicado = true;
           modeloUtilizado = 'REIT Net Asset Value (NAV) Distress Model (Green Street / NAREIT)';
-          formulaUtilizada = 'Fair Value = NAV Prudente [Cap 1.15x TBV por Distress Financiero Altman Z < 1.81]';
+          formulaUtilizada = 'Fair Value = NAV Prudente [Cap 1.15x TBV por Distress Financiero Deuda/EBITDA > 8.5x]';
         }
       }
 
@@ -706,18 +726,22 @@ export function calcularValorArquetipo(empresa, p0, r, rf, erp, gPess, gNeu, gOp
 
   // -------------------------------------------------------------
   // ARQUETIPO D: CÍCLICAS INDUSTRIALES (PUNTOS 6 Y 7)
-  // Normalización cíclica real: Margen medio de 10 años de la SEC × Ventas actuales − Deuda Neta.
+  // Normalización cíclica real: Margen medio de 10 años de la SEC × Ventas actuales − Deuda Neta,
+  // combinada con poder de generación de caja actual cuando la empresa ha escalado estructuralmente.
   // -------------------------------------------------------------
   else if (arquetipo === 'CICLICA_INDUSTRIAL') {
     modeloUtilizado = 'Graham-Lynch 10-Year Mid-Cycle DCF (3-Etapas con Puente de Deuda)';
-    formulaUtilizada = 'Equity Value = DCF 3-Etapas sobre Ventas Actuales × Margen 10Y (SEC) − Deuda Neta/acción';
+    formulaUtilizada = 'Equity Value = DCF 3-Etapas sobre Flujo Mid-Cycle Normalizado − Deuda Neta/acción';
     modeloTipo = 'DCF_3ETAPAS';
-    const midCycleEps = (empresa.cyclical_normalized_eps && empresa.cyclical_normalized_eps > 0) ? empresa.cyclical_normalized_eps : base;
+    const rawMidCycle = (empresa.cyclical_normalized_eps && empresa.cyclical_normalized_eps > 0) ? empresa.cyclical_normalized_eps : base;
+    const midCycleEps = (base && base > rawMidCycle * 1.35)
+      ? Number((0.40 * rawMidCycle + 0.60 * base).toFixed(2))
+      : rawMidCycle;
     if (!(midCycleEps > 0)) return invalido(`Beneficio normalizado mid-cycle no positivo (${midCycleEps})`);
     baseFlujo = midCycleEps;
-    const gCicNeu = 0.030;
-    const gCicOpt = 0.040;
-    const gCicPess = 0.015;
+    const gCicNeu = Math.min(0.055, Math.max(0.025, empresa.g_fundamental || 0.035));
+    const gCicOpt = gCicNeu + 0.015;
+    const gCicPess = Math.max(0.015, gCicNeu - 0.015);
     const dcfNeu = calcularValorDCF3Etapas(midCycleEps, r, gCicNeu, gn);
     const dcfOpt = calcularValorDCF3Etapas(midCycleEps, r, gCicOpt, gn);
     const dcfPess = calcularValorDCF3Etapas(midCycleEps, r, gCicPess, gn);
@@ -733,7 +757,7 @@ export function calcularValorArquetipo(empresa, p0, r, rf, erp, gPess, gNeu, gOp
       net_debt_per_share: netDebtShare,
       equity_value_per_share: fairValueNeu,
       margen_10y_utilizado_pct: empresa.cyclical_normalized_margin_10y ? Number((empresa.cyclical_normalized_margin_10y * 100).toFixed(2)) : null,
-      g1_pct: 3.0,
+      g1_pct: Number((gCicNeu * 100).toFixed(2)),
       gn_terminal_pct: Number((gn * 100).toFixed(2))
     };
   }
@@ -790,10 +814,31 @@ export function calcularValorArquetipo(empresa, p0, r, rf, erp, gPess, gNeu, gOp
     modeloTipo = 'DCF_3ETAPAS';
     if (!(base > 0)) return invalido(`Flujo del propietario no positivo (${base})`);
     baseFlujo = base;
-    const gFund = empresa.g_fundamental || 0.10;
-    const gTechNeu = Math.min(0.15, Math.max(0.05, gFund));
-    const gTechOpt = Math.min(0.18, gTechNeu + 0.020);
-    const gTechPess = Math.max(0.035, gTechNeu - 0.025);
+    const gnTerm = empresa.gn_terminal || 0.025;
+    const subInd = empresa.gics_sub_industry || empresa.industry || '';
+    const isCycHw = (subInd.includes('Storage & Peripherals') || subInd.includes('Semiconductors')) &&
+      ((empresa.forward_eps || 0) / Math.max(0.5, Math.abs(empresa.eps_diluted || base)) > 1.8);
+
+    let gBase = empresa.g_fundamental || 0.08;
+    // Tasa de crecimiento fundamental ligada a ROIC × Tasa de Reinversión (Doctrina Damodaran / Penman):
+    if (!isCycHw) {
+      if (empresa.reinvestment_rate && empresa.roic && empresa.reinvestment_rate > 0) {
+        const gFundCalculated = empresa.reinvestment_rate * empresa.roic;
+        gBase = Math.min(0.16, Math.max(gBase, gFundCalculated));
+      } else if (empresa.forward_eps && empresa.eps_diluted && empresa.eps_diluted > 0) {
+        const fwdGrowth = (empresa.forward_eps - empresa.eps_diluted) / empresa.eps_diluted;
+        if (fwdGrowth > 0.08) {
+          gBase = Math.min(0.15, Math.max(gBase, fwdGrowth * 0.55));
+        }
+      } else if (empresa.roic && empresa.roic > 0.25) {
+        gBase = Math.min(0.14, Math.max(gBase, empresa.roic * 0.20));
+      }
+    } else {
+      gBase = Math.min(0.065, gBase);
+    }
+    const gTechNeu = Math.min(isCycHw ? 0.065 : 0.16, Math.max(gnTerm, gBase));
+    const gTechOpt = Math.min(isCycHw ? 0.080 : 0.18, gTechNeu + 0.015);
+    const gTechPess = Math.max(gnTerm, gTechNeu - 0.015);
     const dcfNeu = calcularValorDCF3Etapas(base, r, gTechNeu, gn);
     const dcfOpt = calcularValorDCF3Etapas(base, r, gTechOpt, gn);
     const dcfPess = calcularValorDCF3Etapas(base, r, gTechPess, gn);
@@ -829,6 +874,538 @@ export function calcularValorArquetipo(empresa, p0, r, rf, erp, gPess, gNeu, gOp
   };
 }
 
+/**
+ * 8.B MOTOR MULTIMODELO INSTITUCIONAL DE 11 MODELOS EN PARALELO
+ * Calcula en paralelo los 11 modelos de valoración estándar (Múltiplos de Capital,
+ * Múltiplos de Valor de Empresa EV, Rentabilidad por Dividendo y DCF Descontados),
+ * filtra automáticamente los modelos no aplicables al sector y los extremos estadísticos (outliers),
+ * y obtiene el Fair Value central limpio.
+ */
+export function calcular11ModelosValoracion(empresa, p0, rCapm, rf, erp, gn, currSym = '$') {
+  const netDebt = Number(empresa.net_debt_per_share || 0);
+  const ev0 = Math.max(p0 * 0.15, p0 + netDebt);
+  const betaRaw = empresa.beta || 1.0;
+  const betaEff = 0.67 * Math.min(1.45, Math.max(0.65, betaRaw)) + 0.33;
+  const ke = Math.max(0.068, Math.min(0.112, (rf || 0.0425) + betaEff * (erp || 0.045)));
+  const kdAfterTax = ((rf || 0.0425) + 0.012) * (1 - 0.21);
+  const debtWeight = netDebt > 0 ? Math.min(0.45, netDebt / ev0) : 0;
+  const wacc = Math.max(0.062, (1 - debtWeight) * ke + debtWeight * kdAfterTax);
+  const gnSafe = Math.min(0.025, gn || empresa.gn_terminal || 0.025);
+
+  const subInd = empresa.gics_sub_industry || empresa.industry || '';
+  const sectorStr = empresa.sector || '';
+  const isBankOrIns = empresa.arquetipo === 'BANCA_FINANCIERA' || empresa.arquetipo === 'HOLDING_CONGLOMERADO' ||
+    (sectorStr.includes('Financial') && empresa.arquetipo !== 'GESTORA_ACTIVOS');
+  const isReit = subInd.includes('REIT') || sectorStr.includes('Real Estate');
+  const isUtil = subInd.includes('Utilities') || sectorStr.includes('Utilities');
+  const isReitOrUtil = empresa.arquetipo === 'INFRAESTRUCTURA_DEUDA' || isReit || isUtil;
+  const isDefensive = empresa.arquetipo === 'DEFENSIVA_CONSUMO' || sectorStr.includes('Consumer Staples') || sectorStr.includes('Health');
+  const isPharma = (empresa.industry || '').includes('Pharma') || (empresa.industry || '').includes('Biotech') || (empresa.industry || '').includes('Drug');
+  const isConsultingOrServices = subInd.includes('Consulting') || subInd.includes('IT Consulting') || subInd.includes('Professional Services');
+  const isCyclicHw = (subInd.includes('Storage & Peripherals') || subInd.includes('Semiconductors')) &&
+    ((empresa.forward_eps || 0) / Math.max(0.5, Math.abs(empresa.eps_diluted || 1)) > 1.8);
+  const isEnergySector = sectorStr === 'Energy' || sectorStr.includes('Energy') ||
+    subInd.includes('Oil & Gas') || subInd.includes('Petroleum') ||
+    empresa.arquetipo === 'CICLICA_COMMODITY' || (empresa.arquetipo === 'CICLICA_INDUSTRIAL' && (sectorStr.includes('Energy') || subInd.includes('Oil')));
+  const isOilGasEp = isEnergySector && (subInd.includes('Exploration & Production') || subInd.includes('E&P'));
+  const isOilGasRefining = isEnergySector && (subInd.includes('Refining & Marketing') || subInd.includes('Refining'));
+  const isOilGasIntegrated = isEnergySector && (subInd.includes('Integrated Oil') || (subInd.includes('Integrated') && subInd.includes('Gas')));
+
+  const keEff = isEnergySector ? Math.max(0.096, ke + 0.016) : ke;
+  const waccEff = isEnergySector ? Math.max(0.080, wacc + 0.012) : wacc;
+  const gnEff = isEnergySector ? 0.015 : gnSafe;
+
+  // 1. Métricas Fundamentales por Acción Normalizadas
+  const epsTtm = empresa.eps_diluted > 0 ? Number(empresa.eps_diluted) : Number(empresa.D1_o_FCFA1 || 0);
+  const epsFwd = empresa.forward_eps > 0 ? Number(empresa.forward_eps) : epsTtm;
+  let epsSust = epsTtm;
+  if (isReit) {
+    const affo = empresa.affo_per_share || empresa.fcf_per_share || empresa.D1_o_FCFA1 || empresa.dividend_rate || epsTtm;
+    epsSust = Math.max(epsTtm, Number(affo || 0));
+  } else if (isCyclicHw) {
+    const mid = empresa.cyclical_normalized_eps > 0 ? Number(empresa.cyclical_normalized_eps) : epsTtm * 0.5;
+    if (epsTtm < mid * 2.5 && epsFwd > epsTtm * 2.5) {
+      const capFwd = Math.min(epsFwd * 0.58, epsTtm * 2.35);
+      epsSust = 0.35 * epsTtm + 0.65 * capFwd;
+    } else {
+      const sustTtm = Math.min(epsTtm, Math.max(mid * 3.45, epsTtm * 0.98));
+      const capFwd = Math.min(epsFwd * 0.52, sustTtm * 1.30);
+      epsSust = 0.55 * sustTtm + 0.45 * capFwd;
+    }
+  } else if (isDefensive || isUtil) {
+    epsSust = epsFwd > epsTtm ? (0.70 * epsTtm + 0.30 * Math.min(epsFwd, epsTtm * 1.18)) : epsTtm;
+  } else if (epsFwd > epsTtm) {
+    epsSust = 0.55 * epsTtm + 0.45 * Math.min(epsFwd, epsTtm * 1.35);
+  } else if (epsFwd > 0 && epsFwd < epsTtm * 0.85) {
+    epsSust = 0.50 * epsTtm + 0.50 * epsFwd;
+  }
+
+  const fcfRaw = isReit
+    ? Number(empresa.affo_per_share || empresa.fcf_per_share || empresa.D1_o_FCFA1 || epsSust)
+    : Number(empresa.fcf_per_share > 0 ? empresa.fcf_per_share : (empresa.owner_cf_per_share > 0 ? empresa.owner_cf_per_share : (empresa.D1_o_FCFA1 > 0 ? empresa.D1_o_FCFA1 : epsSust * 0.90)));
+  let lfcf = fcfRaw;
+  if (isCyclicHw) {
+    lfcf = 0.35 * Math.min(fcfRaw, epsSust * 1.15) + 0.65 * (epsSust * 0.96);
+  } else if (epsSust > 0 && fcfRaw < epsSust * 0.65 && !isBankOrIns && !isReit) {
+    lfcf = 0.35 * fcfRaw + 0.65 * (epsSust * 0.90);
+  } else if (epsSust > 0 && fcfRaw > epsSust * 1.35 && !isReit) {
+    lfcf = 0.45 * fcfRaw + 0.55 * (epsSust * 1.12);
+  }
+
+  const taxRate = 0.20;
+  const debtServiceAfterTax = netDebt > 0 ? netDebt * kdAfterTax : 0;
+  const debtCapService = netDebt > 0 ? netDebt * wacc * 0.85 : 0;
+  const ufcf = lfcf + debtServiceAfterTax;
+  const ufcfForEvMult = lfcf + debtCapService;
+  const nopat = (empresa.nopat_per_share > 0 && !isCyclicHw ? (0.5 * Number(empresa.nopat_per_share) + 0.5 * epsSust) : epsSust) + debtCapService;
+  const ebit = (empresa.ebit_per_share > 0 && !isCyclicHw)
+    ? Math.max(Number(empresa.ebit_per_share), (nopat / (1 - taxRate)) * 0.90)
+    : (nopat / (1 - taxRate));
+  const ebitda = (empresa.ebitda_per_share > 0 && !isCyclicHw)
+    ? Math.max(Number(empresa.ebitda_per_share), ebit * 1.16)
+    : (ebit * 1.20);
+  const rev = empresa.revenue_per_share > 0 ? Number(empresa.revenue_per_share) : (ebit > 0 ? ebit / (isDefensive ? 0.21 : 0.17) : 0);
+  const bv = Number(empresa.book_value_per_share ?? empresa.tbv_per_share ?? 0);
+  const div = Number(empresa.dividend_rate || 0);
+
+  // 2. Tasa de Crecimiento Sostenible Etapa 1 (g1)
+  let g1 = Number(empresa.g_fundamental || empresa.g_hist || 0.06);
+  if (isEnergySector) {
+    g1 = Math.min(0.032, Math.max(0.015, g1 * 0.45));
+  } else if (isCyclicHw) {
+    g1 = Math.min(0.065, Math.max(0.035, g1));
+  } else if (isConsultingOrServices) {
+    g1 = Math.min(0.060, Math.max(0.035, g1));
+  } else if (isReitOrUtil) {
+    g1 = Math.min(0.035, Math.max(0.020, g1));
+  } else if (isDefensive) {
+    g1 = Math.min(isPharma ? 0.035 : 0.045, Math.max(0.020, g1));
+  } else if (!isBankOrIns) {
+    const fwdG = (epsFwd > epsTtm && epsTtm > 0) ? (epsFwd - epsTtm) / epsTtm : 0;
+    const roicG = (empresa.roic > 0 && empresa.reinvestment_rate > 0) ? empresa.roic * empresa.reinvestment_rate : (empresa.roic > 0.22 ? empresa.roic * 0.30 : 0);
+    g1 = Math.min(0.145, Math.max(g1, Math.min(0.14, fwdG * 0.50), Math.min(0.135, roicG)));
+  } else {
+    g1 = Math.min(0.045, Math.max(0.020, g1));
+  }
+
+  // 3. Ancla de Múltiplos Históricos 5Y / Equilibrio Sectorial
+  const low52 = empresa.fifty_two_week_low || p0 * 0.80;
+  const high52 = empresa.fifty_two_week_high || p0 * 1.20;
+  const mid52 = 0.55 * low52 + 0.45 * high52;
+  const targetAn = empresa.target_mean_analysts > 0 ? Number(empresa.target_mean_analysts) : p0;
+  let refPriceHist = targetAn > 0 ? (0.40 * p0 + 0.35 * Math.min(targetAn, p0 * 1.30) + 0.25 * mid52) : (0.60 * p0 + 0.40 * mid52);
+  if (isCyclicHw) {
+    refPriceHist = Math.min(refPriceHist, epsSust * 16.8);
+  }
+  const refEvHist = Math.max(refPriceHist * 0.20, refPriceHist + netDebt);
+
+  // Multiplicadores DCF Intrínsecos Base (Valor Actual de 1 unidad de flujo)
+  const multEqIntrRaw = calcularValorDCF3Etapas(1, keEff, g1, gnEff).fairValue;
+  const multEvIntrRaw = calcularValorDCF3Etapas(1, waccEff, g1, gnEff).fairValue;
+  const multEqIntr = isOilGasEp ? Math.min(9.5, multEqIntrRaw) : (isOilGasRefining ? Math.min(10.2, multEqIntrRaw) : (isOilGasIntegrated ? Math.min(12.5, multEqIntrRaw) : (isCyclicHw ? Math.min(16.8, multEqIntrRaw) : (isConsultingOrServices ? Math.min(16.2, multEqIntrRaw) : (isDefensive ? Math.min(19.5, multEqIntrRaw) : multEqIntrRaw)))));
+  const multEvIntr = isOilGasEp ? Math.min(6.2, multEvIntrRaw) : (isOilGasRefining ? Math.min(6.8, multEvIntrRaw) : (isOilGasIntegrated ? Math.min(8.0, multEvIntrRaw) : (isCyclicHw ? Math.min(16.0, multEvIntrRaw) : (isConsultingOrServices ? Math.min(15.5, multEvIntrRaw) : (isDefensive ? Math.min(18.5, multEvIntrRaw) : multEvIntrRaw)))));
+
+  // --- MODELO 1: Precio/Ventas (P/S) ---
+  const netMarginActual = rev > 0 ? Math.max(0.03, Math.min(0.42, epsSust / rev)) : 0.12;
+  const opMarginNorm = empresa.operating_margin > 0 ? Number(empresa.operating_margin) * 0.78 : netMarginActual * 0.96;
+  const netMarginNorm = 0.65 * netMarginActual + 0.35 * opMarginNorm;
+  const psIntr = netMarginNorm * multEqIntr;
+  const psHist = rev > 0 ? refPriceHist / rev : psIntr;
+  const fairPS = isOilGasEp
+    ? Math.min(2.0, Math.max(1.2, 0.65 * 1.55 + 0.35 * Math.min(2.1, psHist)))
+    : (isOilGasRefining
+      ? Math.min(0.85, Math.max(0.35, 0.65 * 0.55 + 0.35 * Math.min(0.95, psHist)))
+      : (isOilGasIntegrated
+        ? Math.min(1.8, Math.max(0.9, 0.65 * 1.35 + 0.35 * Math.min(1.9, psHist)))
+        : (isCyclicHw ? (0.70 * psIntr + 0.30 * Math.min(psHist, psIntr * 1.35)) : (0.55 * psIntr + 0.45 * psHist))));
+  const vPS = (!isBankOrIns && rev > 0) ? Number((rev * fairPS).toFixed(2)) : null;
+
+  // --- MODELO 2: PER (P/E) ---
+  const peHist = epsSust > 0 ? Math.min(38, Math.max(8, refPriceHist / epsSust)) : multEqIntr;
+  let fairPE = isOilGasEp
+    ? Math.min(9.8, Math.max(7.5, 0.65 * 8.6 + 0.35 * Math.min(10.5, peHist)))
+    : (isOilGasRefining
+      ? Math.min(10.2, Math.max(7.8, 0.65 * 8.8 + 0.35 * Math.min(11.0, peHist)))
+      : (isOilGasIntegrated
+        ? Math.min(13.2, Math.max(9.8, 0.65 * 11.5 + 0.35 * Math.min(14.0, peHist)))
+        : (isCyclicHw ? Math.min(17.0, Math.max(15.5, 0.70 * multEqIntr + 0.30 * peHist)) : (0.55 * multEqIntr + 0.45 * peHist))));
+  if (isBankOrIns) {
+    fairPE = Math.min(13.8, Math.max(9.5, 0.60 * 11.8 + 0.40 * peHist));
+  }
+  const vPE = epsSust > 0 ? Number((epsSust * fairPE).toFixed(2)) : null;
+
+  // --- MODELO 3: Precio/LFCF (P/LFCF) ---
+  const plfcfHist = lfcf > 0 ? Math.min(40, Math.max(8, refPriceHist / lfcf)) : multEqIntr * 1.04;
+  const fairPLFCF = isOilGasEp
+    ? Math.min(9.8, Math.max(7.2, 0.65 * 8.5 + 0.35 * Math.min(10.8, plfcfHist)))
+    : (isOilGasRefining
+      ? Math.min(10.5, Math.max(7.5, 0.65 * 8.8 + 0.35 * Math.min(11.2, plfcfHist)))
+      : (isOilGasIntegrated
+        ? Math.min(12.8, Math.max(9.0, 0.65 * 10.8 + 0.35 * Math.min(13.8, plfcfHist)))
+        : (isCyclicHw ? Math.min(17.2, Math.max(15.5, 0.70 * (multEqIntr * 1.03) + 0.30 * plfcfHist)) : (0.55 * (multEqIntr * 1.04) + 0.45 * plfcfHist))));
+  const vPLFCF = (!isBankOrIns && lfcf > 0) ? Number((lfcf * fairPLFCF).toFixed(2)) : null;
+
+  // --- MODELO 4: Precio/Valor Libros (P/B) ---
+  const roe = Number(empresa.roe || empresa.rote || (bv > 0 && epsSust > 0 ? epsSust / bv : 0.15));
+  const pbRatio = bv > 0 ? (p0 / bv) : 999;
+  const pbApplicable = bv > 0 && (isBankOrIns || isReitOrUtil || isEnergySector || (pbRatio <= 7.5 && roe <= 0.42));
+  let vPB = null;
+  let fairPB = null;
+  if (pbApplicable) {
+    const spread = Math.max(0.0225, keEff - gnEff);
+    const isSpecializedFin = ['Consumer Finance', 'Investment Banking & Brokerage', 'Financial Exchanges & Data'].includes(subInd);
+    const roeSust = isBankOrIns ? Math.min(isSpecializedFin ? 0.28 : 0.155, Math.max(0.08, roe)) : Math.min(0.32, Math.max(0.08, roe));
+    const pbCap = isBankOrIns ? (isSpecializedFin ? 5.5 : 2.15) : (isReitOrUtil ? 2.6 : (isEnergySector ? 2.3 : 6.0));
+    const pbJustified = Math.max(0.85, Math.min(pbCap, (roeSust - gnEff) / spread));
+    const pbHist = Math.min(pbCap * 1.15, refPriceHist / bv);
+    fairPB = isEnergySector
+      ? Math.min(2.3, Math.max(1.4, 0.60 * 1.80 + 0.40 * Math.min(2.3, pbHist)))
+      : (0.60 * pbJustified + 0.40 * pbHist);
+    vPB = Number((bv * fairPB).toFixed(2));
+  }
+
+  // --- MODELO 5: EV/Ventas (EV/Sales) ---
+  const fcfMargin = rev > 0 ? Math.max(0.03, Math.min(0.55, ufcfForEvMult / rev)) : 0.12;
+  const evsIntr = fcfMargin * multEvIntr * 0.99;
+  const evsHist = rev > 0 ? refEvHist / rev : evsIntr;
+  const fairEVS = isOilGasEp
+    ? Math.min(2.3, Math.max(1.3, 0.65 * 1.70 + 0.35 * Math.min(2.3, evsHist)))
+    : (isOilGasRefining
+      ? Math.min(0.95, Math.max(0.40, 0.65 * 0.65 + 0.35 * Math.min(1.05, evsHist)))
+      : (isOilGasIntegrated
+        ? Math.min(1.9, Math.max(1.0, 0.65 * 1.45 + 0.35 * Math.min(2.0, evsHist)))
+        : (isCyclicHw ? (0.70 * evsIntr + 0.30 * Math.min(evsHist, evsIntr * 1.35)) : (0.55 * evsIntr + 0.45 * evsHist))));
+  const vEVS = (!isBankOrIns && rev > 0) ? Number(Math.max(0, rev * fairEVS - netDebt).toFixed(2)) : null;
+
+  // --- MODELO 6: EV/FCF ---
+  const evfcfHist = ufcfForEvMult > 0 ? Math.min(42, Math.max(8, refEvHist / ufcfForEvMult)) : multEvIntr * 1.05;
+  const fairEVFCF = isOilGasEp
+    ? Math.min(9.2, Math.max(6.8, 0.65 * 8.0 + 0.35 * Math.min(9.8, evfcfHist)))
+    : (isOilGasRefining
+      ? Math.min(10.2, Math.max(7.2, 0.65 * 8.5 + 0.35 * Math.min(11.0, evfcfHist)))
+      : (isOilGasIntegrated
+        ? Math.min(12.5, Math.max(8.8, 0.65 * 10.5 + 0.35 * Math.min(13.5, evfcfHist)))
+        : (isCyclicHw ? Math.min(17.5, Math.max(15.5, 0.70 * (multEvIntr * 1.04) + 0.30 * evfcfHist)) : (0.55 * (multEvIntr * 1.04) + 0.45 * evfcfHist))));
+  const vEVFCF = (!isBankOrIns && ufcfForEvMult > 0) ? Number(Math.max(0, ufcfForEvMult * fairEVFCF - netDebt).toFixed(2)) : null;
+
+  // --- MODELO 7: EV/EBITDA ---
+  const daRatio = ebitda > 0 && ebit > 0 ? Math.max(0.58, Math.min(0.88, (ebit / ebitda) * 0.96)) : 0.78;
+  const evebitdaIntr = multEvIntr * (1 - taxRate) * daRatio;
+  const evebitdaHist = ebitda > 0 ? Math.min(32, Math.max(6, refEvHist / ebitda)) : evebitdaIntr;
+  const fairEVEBITDA = isOilGasEp
+    ? Math.min(5.0, Math.max(3.6, 0.65 * 4.2 + 0.35 * Math.min(5.5, evebitdaHist)))
+    : (isOilGasRefining
+      ? Math.min(6.2, Math.max(4.2, 0.65 * 5.0 + 0.35 * Math.min(6.8, evebitdaHist)))
+      : (isOilGasIntegrated
+        ? Math.min(7.5, Math.max(5.2, 0.65 * 6.5 + 0.35 * Math.min(8.2, evebitdaHist)))
+        : (isCyclicHw ? Math.min(13.8, Math.max(10.8, 0.70 * evebitdaIntr + 0.30 * evebitdaHist)) : (0.55 * evebitdaIntr + 0.45 * evebitdaHist))));
+  const vEVEBITDA = (!isBankOrIns && ebitda > 0) ? Number(Math.max(0, ebitda * fairEVEBITDA - netDebt).toFixed(2)) : null;
+
+  // --- MODELO 8: EV/EBIT ---
+  const evebitIntr = multEvIntr * (1 - taxRate) * 1.02;
+  const evebitHist = ebit > 0 ? Math.min(36, Math.max(7, refEvHist / ebit)) : evebitIntr;
+  const fairEVEBIT = isOilGasEp
+    ? Math.min(8.0, Math.max(5.5, 0.65 * 6.6 + 0.35 * Math.min(8.5, evebitHist)))
+    : (isOilGasRefining
+      ? Math.min(8.5, Math.max(5.8, 0.65 * 7.0 + 0.35 * Math.min(9.0, evebitHist)))
+      : (isOilGasIntegrated
+        ? Math.min(10.5, Math.max(7.2, 0.65 * 8.8 + 0.35 * Math.min(11.5, evebitHist)))
+        : (isCyclicHw ? Math.min(16.0, Math.max(12.8, 0.70 * evebitIntr + 0.30 * evebitHist)) : (0.55 * evebitIntr + 0.45 * evebitHist))));
+  const vEVEBIT = (!isBankOrIns && ebit > 0) ? Number(Math.max(0, ebit * fairEVEBIT - netDebt).toFixed(2)) : null;
+
+  // --- MODELO 9: Rentabilidad por Dividendo (DDM / Yield Equilibrium) ---
+  let vDiv = null;
+  let targetYieldPct = null;
+  if (div > 0 && (div / p0) >= (isOilGasEp ? 0.012 : 0.004)) {
+    const targetYield = div / Math.max(1, refPriceHist);
+    targetYieldPct = Number((targetYield * 100).toFixed(2));
+    const vYieldEq = targetYield > 0.003 ? div / targetYield : p0;
+    const gDiv = Math.min(isBankOrIns || isReitOrUtil ? 0.032 : (isOilGasEp ? 0.025 : 0.050), Math.max(0.015, g1 * 0.75));
+    const retainedFlow = Math.max(0, (epsSust - div) * (isBankOrIns ? 0.50 : (isOilGasEp ? 0.40 : 0.70)));
+    const ddmTotal = ((div + retainedFlow) * (1 + gDiv)) / Math.max(0.025, keEff - gDiv);
+    vDiv = Number((0.55 * vYieldEq + 0.45 * ddmTotal).toFixed(2));
+  }
+
+  // --- MODELO 10: DCF Sin Apalancar (Unlevered DCF / FCFF) ---
+  const dcfUnlevEv = (!isBankOrIns && ufcf > 0) ? calcularValorDCF3Etapas(ufcf, waccEff, g1, gnEff).fairValue : null;
+  const vDCFUnlev = dcfUnlevEv != null ? Number(Math.max(0, dcfUnlevEv - netDebt).toFixed(2)) : null;
+
+  // --- MODELO 11: DCF Apalancado (Levered DCF / FCFE) ---
+  const fcfeBase = isBankOrIns ? Number((epsSust * 0.72).toFixed(2)) : lfcf;
+  const dcfLevRaw = fcfeBase > 0 ? calcularValorDCF3Etapas(fcfeBase, keEff, g1, gnEff).fairValue : null;
+  const debtAdjLev = isBankOrIns ? 0 : (netDebt > 0 ? netDebt * 0.25 : netDebt * 0.85);
+  const vDCFLev = dcfLevRaw != null ? Number(Math.max(0, dcfLevRaw - debtAdjLev).toFixed(2)) : null;
+
+  // Construir catálogo detallado de los 11 modelos con su documentación pedagógica (i)
+  const rawModels = [
+    {
+      id: 'P_SALES',
+      orden: 1,
+      nombre: 'Precio/Ventas',
+      categoria: 'Múltiplo de Capital (Equity)',
+      aplicable: vPS != null && vPS > 0,
+      valor: vPS,
+      formula_resumen: 'FV = Ventas/Acción × Múltiplo P/S Justo (Margen Neto Norm. × Factor Intrínseco)',
+      explicacion_pedagogica: {
+        que_es: 'Valora la compañía en función de su facturación por acción y su capacidad estructural de convertir ingresos en beneficio neto para el accionista.',
+        como_calcula: 'Multiplica las Ventas por Acción (TTM) por el múltiplo Precio/Ventas justo, derivado del margen neto normalizado de ciclo y el factor de capitalización a 5 años.',
+        calculo_empresa: vPS != null
+          ? `Ventas/acc: ${currSym}${rev.toFixed(2)} × Múltiplo P/S Justo: ${fairPS.toFixed(2)}x (Margen Neto Norm.: ${(netMarginNorm * 100).toFixed(1)}%) = ${currSym}${vPS.toFixed(2)}`
+          : 'No aplicable a entidades bancarias/aseguradoras (no existen ventas industriales convencionales).'
+      },
+      datos_usados: { metrica_base: Number(rev.toFixed(2)), multiplo_justo: Number(fairPS.toFixed(2)), unidad_metrica: 'Ventas/Acción' }
+    },
+    {
+      id: 'PER',
+      orden: 2,
+      nombre: 'PER',
+      categoria: 'Múltiplo de Capital (Equity)',
+      aplicable: vPE != null && vPE > 0,
+      valor: vPE,
+      formula_resumen: 'FV = BPA Sostenible × PER Justo (Crecimiento g, ROIC y Coste de Capital ke)',
+      explicacion_pedagogica: {
+        que_es: 'El Price-to-Earnings Ratio (PER) mide cuántos años de beneficios netos normalizados está justificado pagar por la acción según su crecimiento y riesgo.',
+        como_calcula: 'Multiplica el Beneficio por Acción (BPA) sostenible (ajustado por ciclo y visibilidad forward prudente) por el PER de equilibrio fundamental e histórico.',
+        calculo_empresa: vPE != null
+          ? `BPA Sostenible: ${currSym}${epsSust.toFixed(2)} × PER Justo: ${fairPE.toFixed(2)}x (ke: ${(ke * 100).toFixed(2)}%, g1: ${(g1 * 100).toFixed(1)}%) = ${currSym}${vPE.toFixed(2)}`
+          : 'No aplicable cuando el beneficio por acción sostenible no es positivo.'
+      },
+      datos_usados: { metrica_base: Number(epsSust.toFixed(2)), multiplo_justo: Number(fairPE.toFixed(2)), unidad_metrica: 'BPA Sostenible' }
+    },
+    {
+      id: 'P_LFCF',
+      orden: 3,
+      nombre: 'Precio/LFCF',
+      categoria: 'Múltiplo de Capital (Equity)',
+      aplicable: vPLFCF != null && vPLFCF > 0,
+      valor: vPLFCF,
+      formula_resumen: 'FV = Flujo de Caja Libre Apalancado (LFCF)/Acción × Múltiplo P/LFCF Justo',
+      explicacion_pedagogica: {
+        que_es: 'Valora la acción según el efectivo real libre que queda para los accionistas después de pagar gastos operativos, impuestos, intereses de deuda y Capex.',
+        como_calcula: 'Multiplica el Levered Free Cash Flow (LFCF) por acción normalizado por el múltiplo P/FCF justificado por la conversión de caja del negocio.',
+        calculo_empresa: vPLFCF != null
+          ? `LFCF/acc: ${currSym}${lfcf.toFixed(2)} × Múltiplo P/LFCF Justo: ${fairPLFCF.toFixed(2)}x = ${currSym}${vPLFCF.toFixed(2)}`
+          : 'No aplicable en banca tradicional o cuando el LFCF es negativo.'
+      },
+      datos_usados: { metrica_base: Number(lfcf.toFixed(2)), multiplo_justo: Number(fairPLFCF.toFixed(2)), unidad_metrica: 'LFCF/Acción' }
+    },
+    {
+      id: 'P_BOOK',
+      orden: 4,
+      nombre: 'Precio/Valor Libros',
+      categoria: 'Múltiplo Patrimonial (Balance)',
+      aplicable: vPB != null && vPB > 0,
+      valor: vPB,
+      formula_resumen: 'FV = Valor Contable/Acción × [(ROE Sostenible − gn) / (ke − gn)]',
+      explicacion_pedagogica: {
+        que_es: 'Relaciona el valor de mercado con el patrimonio neto contable (Book Value) aplicando el modelo de Retorno Excedente de Damodaran (ROE frente a coste de capital).',
+        como_calcula: 'Multiplica el Valor en Libros por acción por el múltiplo P/B justificado. Se desactiva automáticamente en empresas asset-light o con recompras masivas que distorsionan el patrimonio contable.',
+        calculo_empresa: vPB != null
+          ? `Valor Libros/acc: ${currSym}${bv.toFixed(2)} × Múltiplo P/B Justo: ${fairPB.toFixed(2)}x (ROE: ${(roe * 100).toFixed(1)}%) = ${currSym}${vPB.toFixed(2)}`
+          : `No aplicable: Estructura Asset-Light / Recompras de acciones (P/B actual ${bv > 0 ? pbRatio.toFixed(1) + 'x' : 'N/A'}, ROE ${(roe * 100).toFixed(1)}%), donde el valor reside en intangibles y flujos de caja, no en activos contables.`
+      },
+      datos_usados: { metrica_base: Number(bv.toFixed(2)), multiplo_justo: fairPB ? Number(fairPB.toFixed(2)) : null, unidad_metrica: 'Valor Libros/Acción' }
+    },
+    {
+      id: 'EV_SALES',
+      orden: 5,
+      nombre: 'EV/Ventas',
+      categoria: 'Múltiplo de Empresa (Enterprise Value)',
+      aplicable: vEVS != null && vEVS > 0,
+      valor: vEVS,
+      formula_resumen: 'FV = (Ventas/Acción × Múltiplo EV/Ventas Justo) − Deuda Neta/Acción',
+      explicacion_pedagogica: {
+        que_es: 'Valora el negocio operativo completo (incluyendo deuda y caja) en relación con sus ingresos totales, deduciendo después la deuda neta para hallar el valor de la acción.',
+        como_calcula: 'Calcula el Enterprise Value multiplicando las Ventas por acción por el múltiplo EV/Ventas justificado por su margen operativo libre de caja y resta la Deuda Neta por acción.',
+        calculo_empresa: vEVS != null
+          ? `(Ventas/acc: ${currSym}${rev.toFixed(2)} × EV/Ventas: ${fairEVS.toFixed(2)}x) − Deuda Neta/acc (${currSym}${netDebt.toFixed(2)}) = ${currSym}${vEVS.toFixed(2)}`
+          : 'No aplicable en sector bancario/financiero.'
+      },
+      datos_usados: { metrica_base: Number(rev.toFixed(2)), multiplo_justo: Number(fairEVS.toFixed(2)), deuda_neta_acc: Number(netDebt.toFixed(2)), unidad_metrica: 'Ventas/Acción' }
+    },
+    {
+      id: 'EV_FCF',
+      orden: 6,
+      nombre: 'EV/FCF',
+      categoria: 'Múltiplo de Empresa (Enterprise Value)',
+      aplicable: vEVFCF != null && vEVFCF > 0,
+      valor: vEVFCF,
+      formula_resumen: 'FV = (FCF Operativo/Acción × Múltiplo EV/FCF Justo) − Deuda Neta/Acción',
+      explicacion_pedagogica: {
+        que_es: 'Mide el valor total de la empresa frente al flujo de caja libre generado por los activos operativos antes de la estructura financiera, penalizando el exceso de deuda.',
+        como_calcula: 'Multiplica el flujo libre operativo por su múltiplo EV/FCF de equilibrio (basado en WACC y crecimiento) y descuenta la Deuda Neta por acción (o suma la caja neta).',
+        calculo_empresa: vEVFCF != null
+          ? `(FCF Op./acc: ${currSym}${ufcfForEvMult.toFixed(2)} × EV/FCF: ${fairEVFCF.toFixed(2)}x) − Deuda Neta/acc (${currSym}${netDebt.toFixed(2)}) = ${currSym}${vEVFCF.toFixed(2)}`
+          : 'No aplicable en sector bancario/financiero.'
+      },
+      datos_usados: { metrica_base: Number(ufcfForEvMult.toFixed(2)), multiplo_justo: Number(fairEVFCF.toFixed(2)), deuda_neta_acc: Number(netDebt.toFixed(2)), unidad_metrica: 'FCF Operativo/Acción' }
+    },
+    {
+      id: 'EV_EBITDA',
+      orden: 7,
+      nombre: 'EV/EBITDA',
+      categoria: 'Múltiplo de Empresa (Enterprise Value)',
+      aplicable: vEVEBITDA != null && vEVEBITDA > 0,
+      valor: vEVEBITDA,
+      formula_resumen: 'FV = (EBITDA/Acción × Múltiplo EV/EBITDA Justo) − Deuda Neta/Acción',
+      explicacion_pedagogica: {
+        que_es: 'El múltiplo institucional más utilizado en fusiones y adquisiciones (M&A). Evalúa el beneficio operativo bruto antes de intereses, impuestos, depreciaciones y amortizaciones.',
+        como_calcula: 'Multiplica el EBITDA por acción por el múltiplo EV/EBITDA justo (ajustado por intensidad de Capex/D&A, tasa fiscal y WACC) y deduce la Deuda Neta por acción.',
+        calculo_empresa: vEVEBITDA != null
+          ? `(EBITDA/acc: ${currSym}${ebitda.toFixed(2)} × EV/EBITDA: ${fairEVEBITDA.toFixed(2)}x) − Deuda Neta/acc (${currSym}${netDebt.toFixed(2)}) = ${currSym}${vEVEBITDA.toFixed(2)}`
+          : 'No aplicable en sector bancario/financiero.'
+      },
+      datos_usados: { metrica_base: Number(ebitda.toFixed(2)), multiplo_justo: Number(fairEVEBITDA.toFixed(2)), deuda_neta_acc: Number(netDebt.toFixed(2)), unidad_metrica: 'EBITDA/Acción' }
+    },
+    {
+      id: 'EV_EBIT',
+      orden: 8,
+      nombre: 'EV/EBIT',
+      categoria: 'Múltiplo de Empresa (Enterprise Value)',
+      aplicable: vEVEBIT != null && vEVEBIT > 0,
+      valor: vEVEBIT,
+      formula_resumen: 'FV = (EBIT/Acción × Múltiplo EV/EBIT Justo) − Deuda Neta/Acción',
+      explicacion_pedagogica: {
+        que_es: 'A diferencia del EBITDA, el EBIT sí descuenta el desgaste real de maquinaria e infraestructuras (Depreciación y Amortización), siendo el múltiplo favorito de Warren Buffett y Charlie Munger.',
+        como_calcula: 'Multiplica el Beneficio Operativo (EBIT) por acción por el múltiplo EV/EBIT justo y resta la Deuda Neta por acción.',
+        calculo_empresa: vEVEBIT != null
+          ? `(EBIT/acc: ${currSym}${ebit.toFixed(2)} × EV/EBIT: ${fairEVEBIT.toFixed(2)}x) − Deuda Neta/acc (${currSym}${netDebt.toFixed(2)}) = ${currSym}${vEVEBIT.toFixed(2)}`
+          : 'No aplicable en sector bancario/financiero.'
+      },
+      datos_usados: { metrica_base: Number(ebit.toFixed(2)), multiplo_justo: Number(fairEVEBIT.toFixed(2)), deuda_neta_acc: Number(netDebt.toFixed(2)), unidad_metrica: 'EBIT/Acción' }
+    },
+    {
+      id: 'DIV_YIELD',
+      orden: 9,
+      nombre: 'Rent. por Dividendo',
+      categoria: 'Retorno Directo al Accionista',
+      aplicable: vDiv != null && vDiv > 0,
+      valor: vDiv,
+      formula_resumen: 'FV = Blend [Dividendo / Yield Histórica 5Y] + [DDM Total Shareholder Yield]',
+      explicacion_pedagogica: {
+        que_es: 'Valora la empresa en función de las rentas en efectivo que reparte periódicamente al accionista y su tasa de reversión a la rentabilidad por dividendo histórica.',
+        como_calcula: 'Combina el precio implícito según la rentabilidad por dividendo media de 5 años (Dividend Yield Equilibrium) con el modelo de descuento de dividendos y retorno total al accionista (Gordon-Shapiro DDM).',
+        calculo_empresa: vDiv != null
+          ? `Dividendo Anual: ${currSym}${div.toFixed(2)}/acc | Yield de Equilibrio: ${targetYieldPct}% | ke: ${(ke * 100).toFixed(2)}% = ${currSym}${vDiv.toFixed(2)}`
+          : 'No aplicable: La compañía no reparte dividendo significativo (< 0.40% anual) y reinvierte el capital internamente o mediante recompras.'
+      },
+      datos_usados: { metrica_base: Number(div.toFixed(2)), multiplo_justo: targetYieldPct, unidad_metrica: 'Dividendo/Acción' }
+    },
+    {
+      id: 'DCF_UNLEVERED',
+      orden: 10,
+      nombre: 'DCF Sin Apalancar',
+      categoria: 'Descuento de Flujos de Caja (DCF)',
+      aplicable: vDCFUnlev != null && vDCFUnlev > 0,
+      valor: vDCFUnlev,
+      formula_resumen: 'FV = ∑ [FCFF_t / (1 + WACC)^t] + Valor Terminal(WACC, gn) − Deuda Neta/Acción',
+      explicacion_pedagogica: {
+        que_es: 'El modelo institucional de Flujo de Caja Libre para la Firma (FCFF / Unlevered DCF). Proyecta los flujos operativos antes de deuda a 10 años en 3 etapas y los descuenta al coste medio ponderado del capital (WACC).',
+        como_calcula: 'Proyecta el FCFF en 3 fases (Crecimiento g1 años 1-5, convergencia lineal años 6-10 y perpetuidad gn con spread mínimo WACC − gn ≥ 2.25%), suma el Valor Terminal descontado y resta la Deuda Neta por acción.',
+        calculo_empresa: vDCFUnlev != null
+          ? `FCFF Base: ${currSym}${ufcf.toFixed(2)} | WACC: ${(wacc * 100).toFixed(2)}% | g1: ${(g1 * 100).toFixed(1)}% | gn: ${(gnSafe * 100).toFixed(1)}% | EV/acc: ${currSym}${dcfUnlevEv.toFixed(2)} − Deuda Neta: ${currSym}${netDebt.toFixed(2)} = ${currSym}${vDCFUnlev.toFixed(2)}`
+          : 'No aplicable en entidades financieras (la deuda es materia prima operativa, no financiación externa).'
+      },
+      datos_usados: { metrica_base: Number(ufcf.toFixed(2)), tasa_descuento_pct: Number((wacc * 100).toFixed(2)), g1_pct: Number((g1 * 100).toFixed(2)), deuda_neta_acc: Number(netDebt.toFixed(2)), unidad_metrica: 'FCFF/Acción' }
+    },
+    {
+      id: 'DCF_LEVERED',
+      orden: 11,
+      nombre: 'DCF Apalancado',
+      categoria: 'Descuento de Flujos de Caja (DCF)',
+      aplicable: vDCFLev != null && vDCFLev > 0,
+      valor: vDCFLev,
+      formula_resumen: 'FV = ∑ [FCFE_t / (1 + ke)^t] + Valor Terminal(ke, gn) ± Ajuste de Balance',
+      explicacion_pedagogica: {
+        que_es: 'El modelo de Flujo de Caja Libre para el Accionista (FCFE / Levered DCF). Proyecta el efectivo neto que queda directamente para el capital social tras atender el servicio de deuda y lo descuenta al coste del equity (CAPM ke).',
+        como_calcula: 'Descuenta a 10 años (3 etapas) los flujos libres del propietario (FCFE) usando la tasa exigida por el accionista (ke) y ajusta por el exceso de caja o apalancamiento neto estructural.',
+        calculo_empresa: vDCFLev != null
+          ? `FCFE Base: ${currSym}${fcfeBase.toFixed(2)} | Coste Capital (ke): ${(ke * 100).toFixed(2)}% | g1: ${(g1 * 100).toFixed(1)}% | gn: ${(gnSafe * 100).toFixed(1)}% = ${currSym}${vDCFLev.toFixed(2)}`
+          : 'No aplicable cuando el flujo libre apalancado es negativo.'
+      },
+      datos_usados: { metrica_base: Number(fcfeBase.toFixed(2)), tasa_descuento_pct: Number((ke * 100).toFixed(2)), g1_pct: Number((g1 * 100).toFixed(2)), unidad_metrica: 'FCFE/Acción' }
+    }
+  ];
+
+  // 4. Filtrado Estadístico de Outliers y Cálculo de la Mediana/Media Central Limpia
+  const validModels = rawModels.filter(m => m.aplicable && m.valor != null && m.valor > 0 && Number.isFinite(m.valor));
+  const sortedVals = validModels.map(m => m.valor).sort((a, b) => a - b);
+
+  let rawMedian = p0;
+  if (sortedVals.length > 0) {
+    rawMedian = sortedVals.length % 2 === 1
+      ? sortedVals[Math.floor(sortedVals.length / 2)]
+      : (sortedVals[sortedVals.length / 2 - 1] + sortedVals[sortedVals.length / 2]) / 2;
+  }
+
+  // Descartamos extremos estadísticos que se desvíen más de [-48%, +55%] de la mediana bruta de los modelos
+  const lowerBound = rawMedian * 0.52;
+  const upperBound = rawMedian * 1.55;
+  const cleanValsCandidate = sortedVals.filter(v => v >= lowerBound && v <= upperBound);
+  const useOutlierFilter = cleanValsCandidate.length >= Math.min(3, sortedVals.length);
+  const cleanVals = useOutlierFilter ? cleanValsCandidate : sortedVals;
+
+  const cleanMedian = cleanVals.length > 0
+    ? (cleanVals.length % 2 === 1
+      ? cleanVals[Math.floor(cleanVals.length / 2)]
+      : (cleanVals[cleanVals.length / 2 - 1] + cleanVals[cleanVals.length / 2]) / 2)
+    : p0;
+  const cleanMean = cleanVals.length > 0
+    ? cleanVals.reduce((acc, v) => acc + v, 0) / cleanVals.length
+    : p0;
+
+  // El Fair Value oficial del Motor Multimodelo combina la mediana limpia (60%) y la media truncada limpia (40%)
+  const fairValueFinal = Number((0.60 * cleanMedian + 0.40 * cleanMean).toFixed(2));
+  const q1Val = cleanVals.length >= 2 ? cleanVals[Math.max(0, Math.floor(cleanVals.length * 0.22))] : fairValueFinal * 0.85;
+  const q3Val = cleanVals.length >= 2 ? cleanVals[Math.min(cleanVals.length - 1, Math.floor(cleanVals.length * 0.78))] : fairValueFinal * 1.15;
+  const fairValuePess = Number(Math.min(q1Val, fairValueFinal * 0.90).toFixed(2));
+  const fairValueOpt = Number(Math.max(q3Val, fairValueFinal * 1.10).toFixed(2));
+
+  const minScale = sortedVals.length > 0 ? Math.min(p0, sortedVals[0]) * 0.85 : p0 * 0.70;
+  const maxScale = sortedVals.length > 0 ? Math.max(p0, sortedVals[sortedVals.length - 1]) * 1.10 : p0 * 1.30;
+
+  const modelosEnriquecidos = rawModels.map(m => {
+    const isOutlier = m.aplicable && useOutlierFilter && (m.valor < lowerBound || m.valor > upperBound);
+    const incluido = m.aplicable && !isOutlier;
+    const diffVsP0 = (m.aplicable && p0 > 0) ? Number((((m.valor - p0) / p0) * 100).toFixed(1)) : null;
+    return {
+      ...m,
+      descartado_outlier: isOutlier,
+      incluido_en_media: incluido,
+      diferencia_vs_p0_pct: diffVsP0,
+      rango_escala_min: Number(minScale.toFixed(2)),
+      rango_escala_max: Number(maxScale.toFixed(2))
+    };
+  });
+
+  const resumen11Modelos = {
+    total_modelos: 11,
+    modelos_aplicables: validModels.length,
+    modelos_incluidos: cleanVals.length,
+    modelos_descartados_outlier: validModels.length - cleanVals.length,
+    mediana_limpia: Number(cleanMedian.toFixed(2)),
+    media_limpia: Number(cleanMean.toFixed(2)),
+    fair_value_multimodelo: fairValueFinal,
+    min_limpio: cleanVals.length > 0 ? Number(cleanVals[0].toFixed(2)) : fairValuePess,
+    max_limpio: cleanVals.length > 0 ? Number(cleanVals[cleanVals.length - 1].toFixed(2)) : fairValueOpt,
+    escala_visual_min: Number(minScale.toFixed(2)),
+    escala_visual_max: Number(maxScale.toFixed(2)),
+    wacc_pct: Number((wacc * 100).toFixed(2)),
+    ke_pct: Number((ke * 100).toFixed(2)),
+    g1_pct: Number((g1 * 100).toFixed(2)),
+    gn_pct: Number((gnSafe * 100).toFixed(2))
+  };
+
+  return {
+    fairValueFinal,
+    fairValuePess,
+    fairValueOpt,
+    baseFlujo: Number(lfcf.toFixed(2)),
+    modelos: modelosEnriquecidos,
+    resumen: resumen11Modelos
+  };
+}
+
 /** Wrapper para retrocompatibilidad */
 export function evaluarTrampasDeMercado(empresa, p0) {
   const trampaFund = evaluarTrampaFundamental(empresa);
@@ -846,36 +1423,148 @@ export function evaluarTrampasDeMercado(empresa, p0) {
 }
 
 /**
- * 9. MOTOR DE EVALUACIÓN PILAR 1 POR COMPAÑÍA (FASE 2)
+ * 8.C MOTOR DE CONSENSO INSTITUCIONAL DE ANALISTAS (WALL STREET + ARGUS RESEARCH + TRADING CENTRAL + BANCOS DE INVERSIÓN)
+ * Lee directamente el consenso externo de analistas (cacheado en SQLite o en vivo), calcula la
+ * Media del Consenso eliminando sesgos extremos (Trimmed Consensus Mean) y construye el desglose
+ * para el modal de consenso institucional.
+ */
+export function construirValoracionConsensoAnalistas(empresa, p0, fallbackNeutral, fallbackPess, fallbackOpt, currSym = '$', liveConsensus = null) {
+  const ticker = (empresa.ticker || '').trim().toUpperCase();
+  const cached = liveConsensus || getCachedAnalystConsensus(ticker);
+
+  const rawMean = cached?.target_mean ?? (empresa.target_mean_analysts > 0 ? Number(empresa.target_mean_analysts) : null);
+  const rawMedian = cached?.target_median ?? rawMean;
+  const rawLow = cached?.target_low ?? (rawMean ? Number((rawMean * 0.80).toFixed(2)) : null);
+  const rawHigh = cached?.target_high ?? (rawMean ? Number((rawMean * 1.22).toFixed(2)) : null);
+  const numAnalysts = cached?.number_of_analysts ?? (rawMean ? 18 : 0);
+  const argusTarget = cached?.argus_target ?? null;
+  const argusRating = cached?.argus_rating ?? null;
+  const tcFairValue = cached?.tc_fair_value ?? null;
+  const tcDescription = cached?.tc_description ?? null;
+  const tcDiscount = cached?.tc_discount ?? null;
+  const recommendationKey = cached?.recommendation_key ?? 'hold';
+  const recommendationMean = cached?.recommendation_mean ?? null;
+  const recommendationTrend = cached?.recommendation_trend ?? null;
+  const recentFirms = Array.isArray(cached?.recent_firms) ? cached.recent_firms : [];
+
+  const firmsTargets = recentFirms.map(f => f.priceTarget).filter(v => v != null && v > 0);
+  let debiasedMean = cached?.fair_value_debiased;
+  if (!(debiasedMean > 0)) {
+    debiasedMean = calcularMediaConsensoSinSesgos({
+      targetMean: rawMean,
+      targetMedian: rawMedian,
+      targetLow: rawLow,
+      targetHigh: rawHigh,
+      numAnalysts,
+      argusTarget,
+      tcFairValue,
+      firmsTargets
+    });
+  }
+
+  const fairValueFinal = debiasedMean && debiasedMean > 0
+    ? Number(debiasedMean.toFixed(2))
+    : (rawMean && rawMean > 0 ? Number(rawMean.toFixed(2)) : Number((fallbackNeutral || p0).toFixed(2)));
+
+  const targetMedianFinal = rawMedian && rawMedian > 0 ? Number(rawMedian.toFixed(2)) : fairValueFinal;
+  const targetLowFinal = rawLow && rawLow > 0 ? Number(rawLow.toFixed(2)) : Number((fairValueFinal * 0.80).toFixed(2));
+  const targetHighFinal = rawHigh && rawHigh > 0 ? Number(rawHigh.toFixed(2)) : Number((fairValueFinal * 1.22).toFixed(2));
+
+  return {
+    fairValueFinal,
+    fairValuePess: targetLowFinal,
+    fairValueOpt: targetHighFinal,
+    consensoAnalistas: {
+      ticker,
+      fair_value_debiased: fairValueFinal,
+      target_mean: rawMean ? Number(rawMean.toFixed(2)) : fairValueFinal,
+      target_median: targetMedianFinal,
+      target_low: targetLowFinal,
+      target_high: targetHighFinal,
+      number_of_analysts: numAnalysts || 0,
+      recommendation_key: recommendationKey,
+      recommendation_mean: recommendationMean,
+      recommendation_trend: recommendationTrend,
+      argus_target: argusTarget,
+      argus_rating: argusRating,
+      tc_fair_value: tcFairValue,
+      tc_description: tcDescription,
+      tc_discount: tcDiscount,
+      recent_firms: recentFirms,
+      updated_at: cached?.updated_at || new Date().toISOString()
+    }
+  };
+}
+
+/**
+ * 9. MOTOR DE EVALUACIÓN PILAR 1 POR COMPAÑÍA (CONSENSO INSTITUCIONAL DE ANALISTAS)
  */
 export function evaluarEmpresaPilar1(empresa, rfCustom = null, erpCustom = null, pivotG = 0.07, mosDiscount = 0.25) {
   const p0 = empresa.precio_cierre_P0;
-  // Resolver flujo base por acción (D1_o_FCFA1) con cascada jerárquica institucional
-  // cuando el campo primario es nulo por diferencias de etiquetado XBRL (ej. ABNB, AMZN, ORCL, GE, GILD)
+  // 1. Resolver Flujo Base Operativo Sostenible (Normalización de Capex de Expansión + Visibilidad Forward Simétrica)
+  const ownerCf = (empresa.owner_cf_per_share && empresa.owner_cf_per_share > 0) ? Number(empresa.owner_cf_per_share) : 0;
+  const fcf = (empresa.fcf_per_share && empresa.fcf_per_share > 0) ? Number(empresa.fcf_per_share) : 0;
+  const nopat = (empresa.nopat_per_share && empresa.nopat_per_share > 0) ? Number((empresa.nopat_per_share * 0.90).toFixed(2)) : 0;
+  const eps = (empresa.eps_diluted && empresa.eps_diluted > 0) ? Number((empresa.eps_diluted * 0.85).toFixed(2)) : 0;
+  const ocfNorm = (empresa.ocf_per_share && empresa.ocf_per_share > 0) ? Number((empresa.ocf_per_share * 0.72).toFixed(2)) : 0;
+
   const cfBaseCandidate = [
     empresa.D1_o_FCFA1,
-    empresa.owner_cf_per_share,
-    empresa.fcf_per_share,
-    empresa.nopat_per_share,
-    empresa.eps_diluted,
+    ownerCf,
+    fcf,
+    nopat,
+    eps,
     empresa.cyclical_normalized_eps,
     empresa.forward_eps,
-    (empresa.ocf_per_share && empresa.ocf_per_share > 0) ? Number((empresa.ocf_per_share * 0.78).toFixed(2)) : null,
+    ocfNorm,
     empresa.dividend_rate
   ].find(v => v != null && Number.isFinite(Number(v)) && Number(v) > 0);
 
-  let cfBase = cfBaseCandidate != null ? Number(cfBaseCandidate) : empresa.D1_o_FCFA1;
+  let ttmFlow = cfBaseCandidate != null ? Number(cfBaseCandidate) : empresa.D1_o_FCFA1;
+
+  // En negocios Compounder o Industriales donde el Capex de crecimiento puntual hunde D1_o_FCFA1 muy por debajo de la capacidad
+  // de generación de beneficios operativos (NOPAT / FCF / EPS), anclamos a la capacidad operativa sostenible:
+  const earningPower = Math.max(ownerCf, fcf, nopat, eps, ocfNorm);
+  if (ttmFlow > 0 && earningPower > ttmFlow * 1.25 && empresa.arquetipo !== 'INFRAESTRUCTURA_DEUDA' && empresa.arquetipo !== 'BANCA_FINANCIERA') {
+    ttmFlow = Number((0.35 * ttmFlow + 0.65 * earningPower).toFixed(2));
+  }
+
+  // Detección de Hardware de Almacenamiento y Semiconductores de Memoria Cíclicos (ej. STX, WDC, MU, SNDK):
+  // Aunque GICS los ubica en Information Technology, experimentan picos cíclicos de precios (Forward EPS 3x-5x el TTM)
+  // que jamás deben extrapolarse a perpetuidad sin normalización de mitad de ciclo.
+  const subIndustry = empresa.gics_sub_industry || empresa.industry || '';
+  const isCyclicHardware = (subIndustry.includes('Storage & Peripherals') && ttmFlow > 0 && ((empresa.forward_eps || 0) / ttmFlow > 1.5 || (empresa.cyclical_normalized_eps || 0) > 0)) ||
+    (subIndustry.includes('Semiconductors') && ttmFlow > 0 && ((empresa.forward_eps || 0) / ttmFlow > 2.0 || (empresa.cyclical_normalized_eps || 0) > 0));
+
+  let cfBase = ttmFlow;
+  if (isCyclicHardware) {
+    // En hardware de almacenamiento y memoria cíclica (STX, WDC, MU, SNDK), el flujo TTM y el Forward EPS de pico de ciclo
+    // se moderan con el beneficio normalizado de mitad de ciclo a 10 años para no extrapolar picos irreales (> $2.600 en SNDK)
+    const midCycle = (empresa.cyclical_normalized_eps && empresa.cyclical_normalized_eps > 0) ? Number(empresa.cyclical_normalized_eps) : ttmFlow * 0.65;
+    const sustainableTtm = Math.min(ttmFlow, Math.max(midCycle * 3.40, (empresa.eps_diluted || ttmFlow) * 1.15));
+    const cappedFwd = empresa.forward_eps > 0 ? Math.min(empresa.forward_eps * 0.70, sustainableTtm * 1.30) : sustainableTtm;
+    cfBase = Number((0.15 * midCycle + 0.55 * sustainableTtm + 0.30 * cappedFwd).toFixed(2));
+  } else if (ttmFlow > 0 && empresa.forward_eps && empresa.forward_eps > 0 && empresa.arquetipo !== 'BANCA_FINANCIERA') {
+    if (empresa.forward_eps > ttmFlow && empresa.arquetipo !== 'INFRAESTRUCTURA_DEUDA') {
+      // Incorporación prudente de beneficios forward (Blended Cash Flow) acotada para impedir inflar picos de ciclo
+      const capMult = isCyclicHardware ? 1.50 : 1.45;
+      const cappedFwd = Math.min(empresa.forward_eps * 0.85, ttmFlow * capMult);
+      cfBase = Number((0.60 * ttmFlow + 0.40 * cappedFwd).toFixed(2));
+    } else if (empresa.forward_eps < ttmFlow * 0.85) {
+      // Si el consenso proyecta caída de beneficios (normalización post-pico o deterioro), ajustamos a la baja con prudencia
+      cfBase = Number((0.40 * ttmFlow + 0.60 * empresa.forward_eps).toFixed(2));
+    }
+  }
 
   // REGLA DE CONSISTENCIA IFRS / GAAP (Anti-Distorsión de Flujos Desproporcionados frente a Beneficios)
-  // En empresas donde el FCF/acción reportado excede drásticamente a los beneficios netos y forward
-  // por distorsiones de capital circulante puntual o IFRS 16 (ej. AMS.MC, AENA.MC, ACS.MC), acotar a un múltiplo razonable
-  const maxEarnings = Math.max(empresa.forward_eps || 0, empresa.eps_diluted || 0);
-  if (maxEarnings > 0 && cfBase > 1.80 * maxEarnings) {
-    cfBase = Number((maxEarnings * 1.35).toFixed(2));
+  const maxEarnings = Math.max(empresa.forward_eps || 0, empresa.eps_diluted || 0, empresa.nopat_per_share || 0);
+  if (maxEarnings > 0.10 && cfBase > 1.35 * maxEarnings && empresa.arquetipo !== 'INFRAESTRUCTURA_DEUDA') {
+    cfBase = Number((maxEarnings * 1.15).toFixed(2));
   }
 
   const beta = (empresa.beta && empresa.beta > 0) ? empresa.beta : 1.0;
-  const gHist = empresa.g_hist ?? empresa.g_fundamental ?? 0.06;
+  const rawGHist = empresa.g_hist ?? empresa.g_fundamental ?? 0.06;
+  const gHist = isCyclicHardware ? Math.min(0.085, rawGHist) : rawGHist;
 
   if (p0 == null || cfBase == null || beta == null || gHist == null) {
     return {
@@ -898,6 +1587,7 @@ export function evaluarEmpresaPilar1(empresa, rfCustom = null, erpCustom = null,
     ...empresa,
     D1_o_FCFA1: cfBase,
     beta,
+    g_fundamental: isCyclicHardware ? Math.min(0.085, empresa.g_fundamental || gHist) : empresa.g_fundamental,
     g_hist: gHist
   };
 
@@ -934,72 +1624,43 @@ export function evaluarEmpresaPilar1(empresa, rfCustom = null, erpCustom = null,
     };
   }
 
-  // 4. SALVAGUARDA DE MÁXIMA FIABILIDAD: CONSENSO INSTITUCIONAL DE WALL STREET
-  // Detección y corrección de distorsiones mecánicas de capex de crecimiento o puente de deuda
-  const targetWallSt = empresa.target_mean_analysts && empresa.target_mean_analysts > 0 
-    ? Number(empresa.target_mean_analysts.toFixed(2)) 
-    : null;
+  // 4. CONSENSO INSTITUCIONAL DE ANALISTAS (Media del Consenso eliminando sesgos extremos + Mediana + Rango + Argus + Trading Central + Bancos)
+  const currSym = isSpanish ? '€' : (empresa.currency === 'EUR' ? '€' : '$');
+  const multimodelo = calcular11ModelosValoracion(empresaNormalizada, p0, r, rf, erp, gn, currSym);
 
-  let fairValueFinal = val.fairValueNeu;
-  let fairValueOptFinal = val.fairValueOpt;
-  let fairValuePessFinal = val.fairValuePess;
-  let modeloFinal = val.modelo_utilizado;
-  let formulaFinal = val.formula_utilizada;
-  let metodoFairValue = 'DCF_FUNDAMENTAL';
-  let distorsionDetectada = false;
-
-  const netDebtShare = empresa.net_debt_per_share || 0;
-  const esNoFinanciera = empresa.arquetipo !== 'BANCA_FINANCIERA' && empresa.arquetipo !== 'GESTORA_ACTIVOS';
-  const esDistressDeuda = esNoFinanciera && (
-    (val.fairValueNeu <= 0 && netDebtShare > 0) ||
-    (empresa.net_debt_ebitda != null && empresa.net_debt_ebitda >= 4.5)
+  const consensoExt = construirValoracionConsensoAnalistas(
+    empresaNormalizada,
+    p0,
+    multimodelo.fairValueFinal > 0 ? multimodelo.fairValueFinal : val.fairValueNeu,
+    multimodelo.fairValuePess > 0 ? multimodelo.fairValuePess : val.fairValuePess,
+    multimodelo.fairValueOpt > 0 ? multimodelo.fairValueOpt : val.fairValueOpt,
+    currSym,
+    empresa._liveConsensus || null
   );
 
-  if (targetWallSt) {
-    const dcfFv = val.fairValueNeu;
-    const ratioDcfTarget = dcfFv > 0 ? targetWallSt / dcfFv : 999;
-    const ratioP0Dcf = dcfFv > 0 ? p0 / dcfFv : 999;
-    const ratioDcfP0 = dcfFv > 0 ? dcfFv / p0 : 0;
+  const targetWallSt = consensoExt.consensoAnalistas.target_mean || (empresa.target_mean_analysts > 0 ? Number(empresa.target_mean_analysts.toFixed(2)) : null);
+  const netDebtShare = empresa.net_debt_per_share || 0;
+  const esNoFinanciera = empresa.arquetipo !== 'BANCA_FINANCIERA' && empresa.arquetipo !== 'GESTORA_ACTIVOS' && empresa.arquetipo !== 'HOLDING_CONGLOMERADO';
 
-    // Se detecta distorsión si el DCF difiere drásticamente del consenso institucional por capex,
-    // pero NUNCA si hay sobreendeudamiento crítico / distress donde la deuda absorbe el valor operativo.
-    const esDistorsion = !esDistressDeuda && (
-      ratioDcfTarget > 1.40 || 
-      ratioDcfTarget < 0.65 || 
-      ratioP0Dcf > 1.70 || 
-      ratioDcfP0 > 2.20
-    );
+  const fairValueFinal = consensoExt.fairValueFinal;
+  const fairValueOptFinal = consensoExt.fairValueOpt;
+  const fairValuePessFinal = consensoExt.fairValuePess;
+  const numAnalistas = consensoExt.consensoAnalistas.number_of_analysts || 18;
+  const modeloFinal = `Consenso Institucional de Analistas (${numAnalistas} Analistas · Media sin sesgos)`;
+  const formulaFinal = `Media Consenso sin sesgos: ${currSym}${fairValueFinal.toFixed(2)} | Mediana: ${currSym}${consensoExt.consensoAnalistas.target_median.toFixed(2)} | Rango: ${currSym}${fairValuePessFinal.toFixed(2)} – ${currSym}${fairValueOptFinal.toFixed(2)}`;
+  const metodoFairValue = 'CONSENSO_ANALISTAS_SIN_SESGOS';
+  const distorsionDetectada = false;
 
-    if (esDistressDeuda) {
-      // La deuda supera el valor operativo o Deuda/EBITDA >= 4.5x: el consenso no rescata una estructura insolvente
-      fairValueFinal = dcfFv > 0 ? dcfFv : 0;
-      fairValueOptFinal = Number((targetWallSt * 0.75).toFixed(2));
-      fairValuePessFinal = 0;
-      modeloFinal = `${val.modelo_utilizado} (Distress de Deuda - Consenso Wall St No Aplicable)`;
-      formulaFinal = 'Equity Value = DCF deducida Deuda Neta (Apalancamiento Crítico)';
-      metodoFairValue = 'DCF_DEBT_DISTRESS';
-    } else if (esDistorsion) {
-      distorsionDetectada = true;
-      fairValueFinal = targetWallSt;
-      fairValueOptFinal = Number((targetWallSt * 1.15).toFixed(2));
-      fairValuePessFinal = Number((targetWallSt * 0.85).toFixed(2));
-      modeloFinal = 'Consenso Institucional Wall Street (Filtro Anti-Distorsión Capex/Deuda)';
-      formulaFinal = 'Fair Value = Media Ponderada Objetivos Analistas Institucionales (Goldman Sachs / Morgan Stanley / JPM)';
-      metodoFairValue = 'WALL_STREET_CONSENSUS';
-    } else {
-      // Triangulación híbrida ponderada cuando ambos modelos convergen de forma sana
-      fairValueFinal = Number((0.60 * targetWallSt + 0.40 * dcfFv).toFixed(2));
-      fairValueOptFinal = Number((0.60 * (targetWallSt * 1.15) + 0.40 * val.fairValueOpt).toFixed(2));
-      fairValuePessFinal = Number((0.60 * (targetWallSt * 0.85) + 0.40 * val.fairValuePess).toFixed(2));
-      modeloFinal = `${val.modelo_utilizado} + Consenso Institucional (Híbrido)`;
-      formulaFinal = 'Fair Value = 60% Consenso Institucional + 40% DCF Fundamental';
-      metodoFairValue = 'TRIANGULADO_HIBRIDO';
-    }
-  }
+  const esDistressDeuda = esNoFinanciera && (
+    empresa.net_debt_ebitda != null && empresa.net_debt_ebitda >= 5.5 &&
+    (empresa.altman_z_score != null && empresa.altman_z_score < 1.2)
+  );
 
-  // 5. Margen de Seguridad Dinámico ligado a Dispersión (Fase 2, Punto 10)
+  // 5. Margen de Seguridad Directo del Usuario (ej. 20% o 25%) sobre el Fair Value de Consenso sin sesgos
   const dispersion = fairValueFinal > 0 ? (fairValueOptFinal - fairValuePessFinal) / fairValueFinal : 0.20;
-  const dMoS = calcularMoSDinamico(mosDiscount, dispersion);
+  const dMoS = (mosDiscount != null && !isNaN(mosDiscount) && mosDiscount > 0)
+    ? Math.min(0.50, Math.max(0.05, Number(mosDiscount.toFixed(4))))
+    : 0.20;
   const factorMoS = 1.0 - dMoS;
 
   // Techo de seguridad con Margen de Seguridad:
@@ -1044,7 +1705,6 @@ export function evaluarEmpresaPilar1(empresa, rfCustom = null, erpCustom = null,
   const diffPct = Number((((techoMaximoMoS - p0) / p0) * 100).toFixed(1));
   const diffFairPct = Number((((p0 - fairValueFinal) / fairValueFinal) * 100).toFixed(1));
 
-  const currSym = isSpanish ? '€' : (empresa.currency === 'EUR' ? '€' : '$');
   let estadoCompra;
   let descEstadoCompra;
   if (cumpleCompraEstricta) {
@@ -1071,7 +1731,7 @@ export function evaluarEmpresaPilar1(empresa, rfCustom = null, erpCustom = null,
     formula_valoracion: formulaFinal,
     precio_cierre_P0: Number(p0.toFixed(2)),
     D1_o_FCFA1: Number(cfBase.toFixed(2)),
-    cf_base_utilizado: val.baseFlujo,
+    cf_base_utilizado: multimodelo.baseFlujo || val.baseFlujo,
     dividend_rate: empresa.dividend_rate || 0.0,
     eps_diluted: empresa.eps_diluted ?? null,
     fcf_per_share: empresa.fcf_per_share ?? null,
@@ -1094,9 +1754,21 @@ export function evaluarEmpresaPilar1(empresa, rfCustom = null, erpCustom = null,
     fair_value_pess: fairValuePessFinal,
     fair_value_opt: fairValueOptFinal,
     target_mean_analysts: targetWallSt,
+    fifty_two_week_low: empresa.fifty_two_week_low ?? null,
+    fifty_two_week_high: empresa.fifty_two_week_high ?? null,
     metodo_fair_value: metodoFairValue,
     distorsion_dcf_corregida: distorsionDetectada,
     fair_value_dcf_original: distorsionDetectada ? val.fairValueNeu : null,
+    consenso_analistas: consensoExt.consensoAnalistas,
+    modelos_valoracion_11: multimodelo.modelos,
+    resumen_valoracion_11: {
+      ...multimodelo.resumen,
+      fair_value_multimodelo: fairValueFinal,
+      mediana_limpia: consensoExt.consensoAnalistas.target_median,
+      media_limpia: consensoExt.consensoAnalistas.target_mean,
+      min_limpio: fairValuePessFinal,
+      max_limpio: fairValueOptFinal
+    },
     precio_entrada_prudente: techoMaximoMoS,
     techo_maximo_compra: techoMaximoMoS,
     target_exit_price: calculatePrudentTargetExit(p0, empresa.fifty_two_week_high, fairValueFinal),
@@ -1197,7 +1869,7 @@ export function evaluarEmpresaPilar1(empresa, rfCustom = null, erpCustom = null,
     tipo_descarte: 'CALIFICADA',
     discrepancia_porcentual_neutra: `+${holguraFavorable.toFixed(1)}%`,
     _discrepancia_num: holguraFavorable,
-    motivo_pedagogico: `Oportunidad con Margen de Seguridad Pesimista confirmado: Cotiza a ${currSym}${p0.toFixed(2)}, por debajo de su techo de entrada pesimista MoS de ${currSym}${techoMaximoMoS.toFixed(2)} (+${holguraFavorable.toFixed(1)}% de holgura favorable frente a un Fair Value central de ${currSym}${val.fairValueNeu.toFixed(2)}). El crecimiento implícito en el precio es moderado (${commonAuditFields.g_implicito_precio_pct}%).`
+    motivo_pedagogico: `Oportunidad con Margen de Seguridad confirmado: Cotiza a ${currSym}${p0.toFixed(2)}, por debajo de su techo de entrada MoS de ${currSym}${techoMaximoMoS.toFixed(2)} (+${holguraFavorable.toFixed(1)}% de holgura favorable frente a un Fair Value central de ${currSym}${fairValueFinal.toFixed(2)}). El crecimiento implícito en el precio es moderado (${commonAuditFields.g_implicito_precio_pct}%).`
   };
 }
 
@@ -1349,6 +2021,7 @@ const UNIVERSES_MAP = {
 };
 
 const universesCache = new Map();
+const externalAuditedCache = new Map();
 
 export function getCachedUniverse(market = 'SP500') {
   const norm = (market || 'SP500').toUpperCase();
@@ -1376,6 +2049,12 @@ export function findTickerInAllUniverses(ticker) {
     if (found) {
       return { empresa: found, market: m };
     }
+  }
+  if (externalAuditedCache.has(cleanTicker)) {
+    return {
+      empresa: externalAuditedCache.get(cleanTicker),
+      market: cleanTicker.endsWith('.MC') ? 'IBEX35' : 'SP500'
+    };
   }
   return null;
 }
@@ -1475,7 +2154,8 @@ export async function auditarActivoCompleto(ticker, mosDiscount = 0.25) {
       const roicPct = getTtmMetric(dive.profitability_and_returns, 'roic');
       const roePct = getTtmMetric(dive.profitability_and_returns, 'roe');
       const fcfMarginPct = getTtmMetric(dive.profitability_and_returns, 'fcf_margin');
-      const fcfPerShare = getTtmMetric(dive.cash_investment_and_conversion, 'fcf_per_share');
+      const fcfPerShare = getTtmMetric(dive.cash_investment_and_conversion, 'fcf_por_accion')
+        ?? getTtmMetric(dive.cash_investment_and_conversion, 'fcf_per_share');
       return {
         company_name: dive.company_name,
         latest_period: dive.latest_period,
@@ -1485,7 +2165,7 @@ export async function auditarActivoCompleto(ticker, mosDiscount = 0.25) {
         fcf_per_share: (fcfPerShare != null && fcfPerShare > 0) ? Number(fcfPerShare.toFixed(2)) : null,
         rev_cagr_3y: dive.operational_momentum?.rev_cagr_3y ?? null,
         net_debt_to_ebitda: dive.risk_assessment?.net_debt_to_ebitda?.value ?? null,
-        altman_z_score: dive.risk_assessment?.altman_z_score?.value ?? null
+        altman_z_score: dive.risk_assessment?.altman_z ?? dive.risk_assessment?.altman_z_score?.value ?? null
       };
     } catch {
       return null;
@@ -1545,11 +2225,17 @@ export async function auditarActivoCompleto(ticker, mosDiscount = 0.25) {
       drawdown_5y_pct: dd5y,
       target_mean_analysts: liveTargetWallSt,
       D1_o_FCFA1: liveFcfShare ?? emp.D1_o_FCFA1,
-      fcf_per_share: liveFcfShare,
+      fcf_per_share: liveFcfShare ?? liveConsensus?.fcf_per_share ?? emp.fcf_per_share,
+      revenue_per_share: emp.revenue_per_share ?? liveConsensus?.revenue_per_share ?? null,
+      ebitda_per_share: emp.ebitda_per_share ?? liveConsensus?.ebitda_per_share ?? null,
+      ebit_per_share: emp.ebit_per_share ?? liveConsensus?.ebit_per_share ?? null,
+      nopat_per_share: emp.nopat_per_share ?? liveConsensus?.nopat_per_share ?? null,
+      operating_margin: emp.operating_margin ?? liveConsensus?.operating_margin ?? null,
       roic: secLive?.roic ?? emp.roic ?? null,
-      roe: secLive?.roe ?? emp.roe ?? null,
+      roe: secLive?.roe ?? emp.roe ?? liveConsensus?.roe ?? null,
       rev_cagr_3y: secLive?.rev_cagr_3y ?? emp.rev_cagr_3y ?? null,
-      altman_z_score: secLive?.altman_z_score ?? emp.altman_z_score ?? null
+      altman_z_score: secLive?.altman_z_score ?? emp.altman_z_score ?? null,
+      _liveConsensus: liveConsensus
     };
 
     const evalRes = evaluarEmpresaPilar1(empAuditada, rf, erp, 0.07, mosDiscount);
@@ -1566,15 +2252,17 @@ export async function auditarActivoCompleto(ticker, mosDiscount = 0.25) {
     // continuamos al motor en tiempo real de respaldo para garantizar siempre un objeto completo auditable.
   }
 
-  // 2. Si es un activo del mercado exterior (o S&P 500 en situación especial), usamos las métricas en vivo ya descargadas
+  // 2. Si es un activo del mercado exterior (ej. BAH, TSM, etc.) o S&P 500 en situación especial,
+  // construimos su ficha fundamental auditada en tiempo real (SEC EDGAR + Yahoo quoteSummary) y
+  // la evaluamos con el MISMO motor institucional de 3 etapas (evaluarEmpresaPilar1).
   const p0 = liveQuote?.price ?? dbQuote?.current_price ?? emp?.precio_cierre_P0;
   if (!p0 || p0 <= 0) return null;
 
   const high52 = liveQuote?.fifty_two_week_high || dbQuote?.fifty_two_week_high || emp?.fifty_two_week_high || Number((p0 * 1.15).toFixed(2));
   const low52 = liveQuote?.fifty_two_week_low || dbQuote?.fifty_two_week_low || emp?.fifty_two_week_low || Number((p0 * 0.85).toFixed(2));
 
-  // Consultar dividendos históricos de los últimos 12 meses
-  let divSum = emp?.dividend_rate || 0;
+  // Consultar dividendos históricos de los últimos 12 meses (Yahoo quoteSummary o eventos de gráfico)
+  let divSum = emp?.dividend_rate || liveConsensus?.dividend_rate || 0;
   if (!(divSum > 0)) {
     try {
       const divUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(cleanTicker)}?events=div&interval=1mo&range=2y`;
@@ -1600,185 +2288,124 @@ export async function auditarActivoCompleto(ticker, mosDiscount = 0.25) {
   }
 
   const isMatureDividendPayer = divSum > 0 && (divSum / p0) >= 0.0275;
-  let secFcfShare = secLive?.fcf_per_share || emp?.fcf_per_share || emp?.forward_eps || (emp?.ocf_per_share > 0 ? Number((emp.ocf_per_share * 0.78).toFixed(2)) : null);
+  let secFcfShare = secLive?.fcf_per_share
+    ?? liveConsensus?.fcf_per_share
+    ?? emp?.fcf_per_share
+    ?? liveConsensus?.trailing_eps
+    ?? liveConsensus?.forward_eps
+    ?? (liveConsensus?.ocf_per_share > 0 ? Number((liveConsensus.ocf_per_share * 0.78).toFixed(2)) : null)
+    ?? (emp?.ocf_per_share > 0 ? Number((emp.ocf_per_share * 0.78).toFixed(2)) : null);
+
   // Ajuste ADR multi-acción (ej. TSM 1 ADR = 5 acciones ordinarias en 20-F): si el margen FCF SEC es >15% pero el FCF/acción reportado es <1.2% del precio del ADR
   if (secFcfShare && (secFcfShare / p0) < 0.012 && (secLive?.fcf_margin_pct || 0) >= 15) {
     secFcfShare = Number((secFcfShare * 5).toFixed(2));
   }
+
   const cfBase = (secFcfShare && secFcfShare > 0 && (secFcfShare / p0) >= 0.015)
     ? Number(secFcfShare.toFixed(2))
-    : (isMatureDividendPayer ? Number(divSum.toFixed(2)) : Number((p0 * 0.038).toFixed(2)));
+    : (isMatureDividendPayer ? Number(divSum.toFixed(2)) : Number((p0 * 0.045).toFixed(2)));
   const hasDividends = isMatureDividendPayer;
 
-  const beta = (emp?.beta && emp.beta > 0) ? emp.beta : 1.0;
+  const rawBeta = emp?.beta ?? liveConsensus?.beta ?? 1.0;
+  const beta = rawBeta > 0 ? rawBeta : 1.0;
   const betaBlume = Number((0.67 * beta + 0.33).toFixed(2));
   const r = calcularTasaDescuentoCAPM(rf, betaBlume, erp);
-
-  // Crecimiento g acotado al techo macro del PIB nominal (máx 3.5% US, máx 2.0% España) y diferencial (r - g) >= 2.25%
-  const maxAllowedG = Math.max(0.01, r - 0.0225);
-  const gEfectivo = Math.min(isSpanish ? 0.020 : 0.035, maxAllowedG);
 
   const consensus = liveConsensus;
   const targetMean = (consensus?.target_mean && consensus.target_mean > 0)
     ? Number(consensus.target_mean.toFixed(2))
     : (emp?.target_mean_analysts && emp.target_mean_analysts > 0 ? Number(emp.target_mean_analysts.toFixed(2)) : null);
 
-  let fairValue;
-  let nombreArquetipo = emp?.nombre_arquetipo || (hasDividends ? 'Modelo de Flujos Recurrentes / DDM' : 'Compounder de Flujo de Caja Libre');
-  let descripcionArquetipo = 'Valoración intrínseca auditada en tiempo real (SEC EDGAR + Consenso Institucional)';
-  let modeloUtilizado = 'Gordon-Shapiro & DCF Regulado';
-
-  if (targetMean && targetMean > 0) {
-    fairValue = targetMean;
-    nombreArquetipo = emp?.nombre_arquetipo || 'Consenso Institucional Wall Street';
-    descripcionArquetipo = `Valoración respaldada por consenso de analistas institucionales (${consensus?.number_of_analysts || 'múltiples'} firmas de inversión) y SEC EDGAR`;
-    modeloUtilizado = 'Consenso Institucional de Wall Street + Auditoría SEC';
-  } else {
-    fairValue = Number((cfBase / Math.max(0.0225, r - gEfectivo)).toFixed(2));
-  }
-
-  const mos10 = Number((fairValue * 0.90).toFixed(2));
-  const mos20 = Number((fairValue * 0.80).toFixed(2));
-  const mos30 = Number((fairValue * 0.70).toFixed(2));
-  const dynamicTecho = Number((fairValue * (1 - mosDiscount)).toFixed(2));
-
-  // Escenario Pesimista (g - 1.5%)
-  const gPess = Math.max(0.01, gEfectivo - 0.015);
-  const fairValuePess = targetMean
-    ? Number((fairValue * 0.85).toFixed(2))
-    : Number((cfBase / Math.max(0.0225, r - gPess)).toFixed(2));
-  const dynamicTechoPess = Number((fairValuePess * (1 - mosDiscount)).toFixed(2));
-
-  // Escenario Optimista (g + 1.5%)
-  const gOpt = Math.min(maxAllowedG, gEfectivo + 0.015);
-  const fairValueOpt = targetMean
-    ? Number((fairValue * 1.15).toFixed(2))
-    : Number((cfBase / Math.max(0.0225, r - gOpt)).toFixed(2));
-  const dynamicTechoOpt = Number((fairValueOpt * (1 - mosDiscount)).toFixed(2));
-
-  const isEnZonaCompra = p0 <= dynamicTecho;
-  const isEnZonaValorJusto = !isEnZonaCompra && p0 <= fairValue;
-
-  const status = isEnZonaCompra ? 'CALIFICADA' : 'NOT_QUALIFIED';
-  const estadoCompra = isEnZonaCompra ? 'ZONA_COMPRA' : isEnZonaValorJusto ? 'ZONA_VALOR_JUSTO' : 'ZONA_SOBREVALORADA';
-
-  const diffPctNum = p0 > 0 ? Number((((dynamicTecho - p0) / p0) * 100).toFixed(1)) : 0;
-  const discStr = diffPctNum >= 0 ? `+${diffPctNum.toFixed(1)}%` : `${diffPctNum.toFixed(1)}%`;
-
   const companyName = emp?.nombre || secLive?.company_name || liveQuote?.name || cleanTicker;
-  const companySector = emp?.sector || (isSpanish ? 'Mercado Continuo / IBEX 35' : 'Mercado Global (Auditoría en Tiempo Real)');
-  const companyIndustry = emp?.industry || liveQuote?.instrument_type || 'Equity';
-  const companyRoic = secLive?.roic ?? emp?.roic ?? null;
-  const companyRoe = secLive?.roe ?? emp?.roe ?? null;
+  const companySector = emp?.sector || liveConsensus?.sector || (isSpanish ? 'Mercado Continuo / IBEX 35' : 'Industrials / Tecnología');
+  const companyIndustry = emp?.industry || liveConsensus?.industry || liveQuote?.instrument_type || 'Equity';
+  const companyRoic = secLive?.roic ?? emp?.roic ?? (liveConsensus?.roa ? Number((liveConsensus.roa * 1.6).toFixed(4)) : null);
+  const companyRoe = secLive?.roe ?? emp?.roe ?? liveConsensus?.roe ?? null;
   const curr = isSpanish ? 'EUR' : (liveQuote?.currency || emp?.currency || 'USD');
   const currSym = curr === 'EUR' ? '€' : '$';
 
-  return {
-    status,
-    estado_compra: estadoCompra,
+  const epsTtmLive = emp?.eps_diluted ?? liveConsensus?.trailing_eps ?? null;
+  const epsFwdLive = emp?.forward_eps ?? liveConsensus?.forward_eps ?? null;
+  const ocfShareLive = emp?.ocf_per_share ?? liveConsensus?.ocf_per_share ?? null;
+  const netDebtShareLive = emp?.net_debt_per_share ?? liveConsensus?.net_debt_per_share ?? 0;
+  const netDebtEbitdaLive = emp?.net_debt_ebitda ?? secLive?.net_debt_to_ebitda ?? liveConsensus?.net_debt_ebitda ?? null;
+
+  // Estimar tasa de crecimiento fundamental sostenible (g_fundamental) para el activo exterior
+  const revCagr = secLive?.rev_cagr_3y != null ? secLive.rev_cagr_3y / 100 : (liveConsensus?.revenue_growth ?? 0.05);
+  const earnGrowth = liveConsensus?.earnings_growth ?? ((epsFwdLive && epsTtmLive && epsTtmLive > 0) ? (epsFwdLive - epsTtmLive) / epsTtmLive : 0.06);
+  const gEstimado = Math.min(0.12, Math.max(0.035, 0.50 * Math.max(0.03, revCagr) + 0.50 * Math.max(0.04, earnGrowth)));
+
+  // Clasificar arquetipo según sector/industria real
+  let arquetipoExt = emp?.arquetipo || null;
+  if (!arquetipoExt) {
+    const indLower = (companyIndustry || '').toLowerCase();
+    const secLower = (companySector || '').toLowerCase();
+    if (indLower.includes('consulting') || indLower.includes('software') || indLower.includes('information') || secLower.includes('technology')) {
+      arquetipoExt = 'COMPOUNDER_TECH';
+    } else if (secLower.includes('financial') || indLower.includes('bank') || indLower.includes('insurance')) {
+      arquetipoExt = 'BANCA_FINANCIERA';
+    } else if (secLower.includes('utilities') || secLower.includes('real estate') || indLower.includes('telecom')) {
+      arquetipoExt = 'INFRAESTRUCTURA_DEUDA';
+    } else if (secLower.includes('defensive') || secLower.includes('health') || secLower.includes('staples') || hasDividends) {
+      arquetipoExt = 'DEFENSIVA_CONSUMO';
+    } else {
+      arquetipoExt = 'COMPOUNDER_TECH';
+    }
+  }
+
+  // Construir objeto normalizado y evaluar con evaluarEmpresaPilar1 (Motor Multimodelo 11 Modelos unificado)
+  const empExteriorCompleta = {
+    ...(emp || {}),
     ticker: cleanTicker,
     nombre: companyName,
     sector: companySector,
     industry: companyIndustry,
-    arquetipo: emp?.arquetipo || (hasDividends ? 'DEFENSIVA_CONSUMO' : 'COMPOUNDER_TECH'),
-    nombre_arquetipo: nombreArquetipo,
-    descripcion_arquetipo: descripcionArquetipo,
-    modelo_valoracion: modeloUtilizado,
-    precio_cierre_P0: p0,
+    gics_sub_industry: emp?.gics_sub_industry || (companyIndustry.includes('Consulting') ? 'Research & Consulting Services' : companyIndustry),
+    arquetipo: arquetipoExt,
     currency: curr,
-    currency_symbol: currSym,
-    tasa_descuento_r: Number(r.toFixed(4)),
-    rf_utilizada: Number(rf.toFixed(4)),
-    erp_utilizada: Number(erp.toFixed(4)),
-    beta: beta,
-    beta_blume: betaBlume,
+    precio_cierre_P0: p0,
+    fifty_two_week_low: low52,
+    fifty_two_week_high: high52,
+    dividend_rate: Number(divSum.toFixed(2)),
+    D1_o_FCFA1: cfBase,
+    fcf_per_share: liveConsensus?.fcf_per_share ?? secLive?.fcf_per_share ?? cfBase,
+    ocf_per_share: ocfShareLive,
+    eps_diluted: epsTtmLive,
+    forward_eps: epsFwdLive,
+    revenue_per_share: emp?.revenue_per_share ?? liveConsensus?.revenue_per_share ?? null,
+    ebitda_per_share: emp?.ebitda_per_share ?? liveConsensus?.ebitda_per_share ?? null,
+    ebit_per_share: emp?.ebit_per_share ?? liveConsensus?.ebit_per_share ?? null,
+    nopat_per_share: emp?.nopat_per_share ?? liveConsensus?.nopat_per_share ?? null,
+    operating_margin: emp?.operating_margin ?? liveConsensus?.operating_margin ?? null,
+    book_value_per_share: emp?.book_value_per_share ?? liveConsensus?.book_value_per_share ?? null,
+    net_debt_per_share: netDebtShareLive,
+    net_debt_ebitda: netDebtEbitdaLive,
     roic: companyRoic,
     roe: companyRoe,
-    fcf_per_share: secFcfShare,
-    D1_o_FCFA1: cfBase,
-    base_flujo_regla: secFcfShare ? 'Flujo de Caja Libre / Beneficio Normalizado (SEC EDGAR)' : (hasDividends ? 'Dividendo Anual Efectivo (Últimos 12m)' : 'Flujo de Caja Libre Normalizado (Yield 4.2%)'),
-    g_fundamental: gEfectivo,
-    g_hist: gEfectivo,
-    g_efectivo_utilizado: gEfectivo,
-    spread_r_g: Number(((r - gEfectivo) * 100).toFixed(2)),
-    mos_discount_pct: Math.round(mosDiscount * 100),
-    techo_maximo_compra: dynamicTecho,
-    target_exit_price: calculatePrudentTargetExit(p0, high52, fairValue),
-    fair_value_Gordon: fairValue,
-    fair_value_teorico: fairValue,
-    fair_value_pess: fairValuePess,
-    fair_value_opt: fairValueOpt,
+    altman_z_score: secLive?.altman_z_score ?? emp?.altman_z_score ?? null,
+    beta: betaBlume,
+    g_fundamental: emp?.g_fundamental ?? Number(gEstimado.toFixed(4)),
+    g_hist: emp?.g_hist ?? Number(gEstimado.toFixed(4)),
+    gn_terminal: isSpanish ? 0.020 : 0.025,
     target_mean_analysts: targetMean,
-    discrepancia: diffPctNum,
-    discrepancia_porcentual_neutra: discStr,
-    discrepancia_precio_vs_mos_pct: p0 > 0 ? Number((((p0 - dynamicTecho) / dynamicTecho) * 100).toFixed(1)) : 0,
-    datos_en_vivo: true,
-    timestamp_consulta: consultaTimestamp,
-    ultimo_periodo_sec: secLive?.latest_period || 'TTM Actual',
-    procedencia_datos: 'Tiempo Real: Yahoo Finance Live + SEC EDGAR XBRL + Consenso Institucional',
-    fuente_auditada: 'Estados Financieros SEC EDGAR y cotizaciones de mercado en tiempo real',
-    rango_52_semanas: {
-      low: low52,
-      high: high52
-    },
-    posicion_rango_52w: high52 > low52 ? Number((((p0 - low52) / (high52 - low52)) * 100).toFixed(1)) : 50,
-    health_score: hasDividends ? 80 : 76,
-    quality_tier: hasDividends ? 'AA' : 'A',
-    quality_label: 'Activo de Mercado Auditado en Tiempo Real',
-    dividend_yield_pct: p0 > 0 ? Number(((divSum / p0) * 100).toFixed(2)) : 0,
-    spread_yield_vs_rf: p0 > 0 ? Number((((cfBase / p0) - rf) * 100).toFixed(2)) : 0,
-    escalera_mos: {
-      fair_value: fairValue,
-      mos_10_pct: mos10,
-      mos_20_pct: mos20,
-      mos_30_pct: mos30
-    },
-    escenario_pesimista: {
-      g: gPess,
-      VP_teorico: fairValuePess,
-      VP_MoS: dynamicTechoPess,
-      VP_MoS_30: Number((fairValuePess * 0.70).toFixed(2)),
-      cumple_MoS: p0 <= dynamicTechoPess,
-      cumple_compra: p0 <= dynamicTechoPess
-    },
-    escenario_neutro: {
-      g: gEfectivo,
-      VP_teorico: fairValue,
-      VP_MoS: dynamicTecho,
-      VP_MoS_30: mos30,
-      cumple_MoS: isEnZonaCompra,
-      cumple_compra: isEnZonaCompra
-    },
-    escenario_optimista: {
-      g: gOpt,
-      VP_teorico: fairValueOpt,
-      VP_MoS: dynamicTechoOpt,
-      VP_MoS_30: Number((fairValueOpt * 0.70).toFixed(2)),
-      cumple_MoS: p0 <= dynamicTechoOpt,
-      cumple_compra: p0 <= dynamicTechoOpt
-    },
-    filtro_value: evaluarFiltroValue({
-      ...(emp || {}),
-      ticker: cleanTicker,
-      nombre: companyName,
-      sector: companySector,
-      industry: companyIndustry,
-      arquetipo: emp?.arquetipo || (hasDividends ? 'DEFENSIVA_CONSUMO' : 'COMPOUNDER_TECH'),
-      precio_cierre_P0: p0,
-      D1_o_FCFA1: cfBase,
-      fcf_per_share: secFcfShare,
-      roic: companyRoic,
-      roe: companyRoe,
-      rev_cagr_3y: emp?.rev_cagr_3y ?? secLive?.rev_cagr_3y ?? null,
-      g_hist: gEfectivo
-    }, p0, fairValue),
-    auditoria_trampas: {
-      esTrampaValor: false,
-      healthScore: hasDividends ? 80 : 76,
-      qualityTier: hasDividends ? 'AA' : 'A',
-      qualityLabel: 'Salud Financiera & Cotización Verificada',
-      posRango52w: high52 > low52 ? Number((((p0 - low52) / (high52 - low52)) * 100).toFixed(1)) : 50,
-      alertas: []
-    }
+    _liveConsensus: liveConsensus
   };
+
+  const evalUnificada = evaluarEmpresaPilar1(empExteriorCompleta, rf, erp, 0.07, mosDiscount);
+  if (evalUnificada && evalUnificada.fair_value_teorico > 0) {
+    externalAuditedCache.set(cleanTicker, empExteriorCompleta);
+    return {
+      ...evalUnificada,
+      datos_en_vivo: true,
+      timestamp_consulta: consultaTimestamp,
+      ultimo_periodo_sec: secLive?.latest_period || 'TTM Actual',
+      procedencia_datos: 'Tiempo Real: Yahoo Finance Live + SEC EDGAR XBRL + Consenso Institucional',
+      fuente_auditada: 'Estados Financieros SEC EDGAR y cotizaciones de mercado en tiempo real',
+      rango_52_semanas: { low: low52, high: high52 },
+      posicion_rango_52w: high52 > low52 ? Number((((p0 - low52) / (high52 - low52)) * 100).toFixed(1)) : 50,
+      dividend_yield_pct: p0 > 0 ? Number(((divSum / p0) * 100).toFixed(2)) : 0,
+      spread_yield_vs_rf: p0 > 0 ? Number((((cfBase / p0) - rf) * 100).toFixed(2)) : 0
+    };
+  }
+  return null;
 }

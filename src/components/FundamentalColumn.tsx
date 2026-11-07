@@ -26,6 +26,7 @@ import { DiscardedDetailModal } from './DiscardedDetailModal';
 import { ValueFilterModal } from './ValueFilterModal';
 import { StockPriceChart } from './StockPriceChart';
 import { AssetComparisonModal } from './AssetComparisonModal';
+import { ValuationModelsModal } from './ValuationModelsModal';
 
 interface FundamentalColumnProps {
   scanData: Pilar1ScanResponse | null;
@@ -70,6 +71,7 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
   const [valueFilterMode, setValueFilterMode] = React.useState<'ALL' | 'APTO_5_5' | 'MIN_4_5'>('ALL');
   const [isValueFilterModalOpen, setIsValueFilterModalOpen] = React.useState(false);
   const [isComparisonModalOpen, setIsComparisonModalOpen] = React.useState(false);
+  const [isValuationModelsModalOpen, setIsValuationModelsModalOpen] = React.useState(false);
   const [showChart, setShowChart] = React.useState(false);
   const [isDragOver, setIsDragOver] = React.useState(false);
   const dragCounterRef = React.useRef(0);
@@ -1159,7 +1161,14 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
             </div>
 
             <div className="text-[10px] text-textSecondary font-mono hidden sm:flex items-center space-x-2">
-              <span>FV: <strong className="text-textPrimary">{currSym}{(selectedCompany.fair_value_teorico ?? selectedCompany.precio_cierre_P0).toFixed(2)}</strong></span>
+              <button
+                type="button"
+                onClick={() => setIsValuationModelsModalOpen(true)}
+                className="px-2 py-0.5 rounded bg-accentSky/10 hover:bg-accentSky/20 border border-accentSky/30 text-textPrimary transition cursor-pointer"
+                title="Haz clic para ver el Consenso Institucional de Analistas (Mediana, Rango, Argus, Trading Central y Bancos)"
+              >
+                FV (Consenso Analistas): <strong className="text-accentSky underline decoration-dotted">{currSym}{(selectedCompany.fair_value_teorico ?? selectedCompany.precio_cierre_P0).toFixed(2)}</strong>
+              </button>
               <span>·</span>
               <span>MoS: <strong className="text-statusGreen">{currSym}{(selectedCompany.escenario_neutro.VP_MoS ?? selectedCompany.escenario_neutro.VP_MoS_30).toFixed(2)}</strong></span>
             </div>
@@ -1303,35 +1312,39 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
           {/* Comparador de los 3 Escenarios de Crecimiento (Pesimista, Neutro, Optimista) */}
           <div className="grid grid-cols-3 gap-3">
             
-            {/* ESCENARIO 1: PESIMISTA (CRITERIO ESTRICTO DE COMPRA - PUNTO 10) */}
-            <div className="p-3.5 rounded-xl bg-canvas border border-accentSky/50 flex flex-col justify-between shadow-sm relative overflow-hidden">
+            {/* ESCENARIO 1: PESIMISTA (MÍNIMO DEL RANGO DE ANALISTAS) */}
+            <div
+              onClick={() => setIsValuationModelsModalOpen(true)}
+              className="p-3.5 rounded-xl bg-canvas border border-accentSky/50 flex flex-col justify-between shadow-sm relative overflow-hidden cursor-pointer hover:border-accentSky transition"
+              title="Mínimo del Rango de Analistas (Target Low) · Haz clic para ver el Consenso de Analistas"
+            >
               <div className="absolute top-0 right-0 bg-accentSky/20 text-accentSky text-[9px] font-bold px-2 py-0.5 rounded-bl">
                 CRITERIO DE COMPRA (P₀ ≤ VP_MoS)
               </div>
               <div>
                 <div className="flex items-center justify-between pb-2 border-b border-borderSubtle/60">
-                  <span className="text-xs font-bold text-accentSky">1. Escenario Pesimista</span>
+                  <span className="text-xs font-bold text-accentSky">1. Escenario Conservador</span>
                   <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-card text-accentSky font-bold mr-36">
-                    g_pess: {(selectedCompany.escenario_pesimista.g * 100).toFixed(1)}%
+                    Rango Bajo
                   </span>
                 </div>
                 <div className="mt-2.5 space-y-1.5 text-xs font-mono">
                   <div className="flex justify-between">
-                    <span className="text-textSecondary">Crecimiento (g):</span>
+                    <span className="text-textSecondary">Referencia:</span>
                     <span className="text-textPrimary font-semibold">
-                      {(selectedCompany.escenario_pesimista.g * 100).toFixed(1)}%
+                      Mín. Analistas
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-textSecondary">VP Teórico:</span>
+                    <span className="text-textSecondary">Target Low:</span>
                     <span className="text-textPrimary font-semibold">
                       {currSym}{selectedCompany.escenario_pesimista.VP_teorico.toFixed(2)}
                     </span>
                   </div>
                   <div className="flex justify-between pt-1 border-t border-borderSubtle/40">
-                    <span className="text-textSecondary">VP MoS ({selectedCompany.mos_discount_pct ?? mosDiscount}%):</span>
+                    <span className="text-textSecondary">Techo MoS ({selectedCompany.mos_discount_pct ?? mosDiscount}%):</span>
                     <span className="text-accentSky font-bold">
-                      {currSym}{(selectedCompany.escenario_pesimista.VP_MoS ?? selectedCompany.escenario_pesimista.VP_MoS_30).toFixed(2)}
+                      {currSym}{(selectedCompany.escenario_neutro.VP_MoS ?? selectedCompany.escenario_neutro.VP_MoS_30).toFixed(2)}
                     </span>
                   </div>
                 </div>
@@ -1351,28 +1364,32 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
               </div>
             </div>
 
-            {/* ESCENARIO 2: NEUTRO (VALORACIÓN BASE CENTRAL) */}
-            <div className="p-3.5 rounded-xl bg-canvas border border-borderSubtle flex flex-col justify-between hover:border-borderMedium transition relative overflow-hidden">
-              <div className="absolute top-0 right-0 bg-cardSecondary text-textSecondary text-[9px] font-bold px-2 py-0.5 rounded-bl">
-                VALOR JUSTO CENTRAL
+            {/* ESCENARIO 2: NEUTRO (VALORACIÓN BASE CENTRAL - CLICABLE PARA VER CONSENSO DE ANALISTAS) */}
+            <div
+              onClick={() => setIsValuationModelsModalOpen(true)}
+              className="p-3.5 rounded-xl bg-canvas border border-accentSky/40 flex flex-col justify-between hover:border-accentSky hover:bg-cardSecondary/50 transition relative overflow-hidden cursor-pointer group"
+              title="Haz clic para abrir el Consenso Institucional de Analistas (Mediana, Rango Bajo-Alto, Argus, Trading Central y Bancos)"
+            >
+              <div className="absolute top-0 right-0 bg-accentSky/20 text-accentSky text-[9px] font-bold px-2 py-0.5 rounded-bl group-hover:bg-accentSky group-hover:text-canvas transition">
+                VER CONSENSO ↗
               </div>
               <div>
                 <div className="flex items-center justify-between pb-2 border-b border-borderSubtle/60">
-                  <span className="text-xs font-bold text-textPrimary">2. Escenario Neutro</span>
+                  <span className="text-xs font-bold text-textPrimary group-hover:text-accentSky transition">2. Fair Value Consenso</span>
                   <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-card text-textSecondary font-bold mr-28">
-                    g_neu: {(selectedCompany.escenario_neutro.g * 100).toFixed(1)}%
+                    {selectedCompany.consenso_analistas?.number_of_analysts || 18} analistas
                   </span>
                 </div>
                 <div className="mt-2.5 space-y-1.5 text-xs font-mono">
                   <div className="flex justify-between">
-                    <span className="text-textSecondary">Crecimiento (g):</span>
+                    <span className="text-textSecondary">Mediana Analistas:</span>
                     <span className="text-textPrimary font-bold">
-                      {(selectedCompany.escenario_neutro.g * 100).toFixed(1)}%
+                      {currSym}{(selectedCompany.consenso_analistas?.target_median ?? selectedCompany.escenario_neutro.VP_teorico).toFixed(2)}
                     </span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-textSecondary">VP Teórico:</span>
-                    <span className="text-textPrimary font-semibold">
+                  <div className="flex justify-between items-center bg-accentSky/10 px-1.5 py-0.5 rounded border border-accentSky/20">
+                    <span className="text-accentSky font-sans font-semibold text-[11px]">FV (Media sin sesgos):</span>
+                    <span className="text-accentSky font-bold underline decoration-dotted">
                       {currSym}{selectedCompany.escenario_neutro.VP_teorico.toFixed(2)}
                     </span>
                   </div>
@@ -1399,8 +1416,12 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
               </div>
             </div>
 
-            {/* ESCENARIO 3: OPTIMISTA (POTENCIAL ALCISTA) */}
-            <div className="p-3.5 rounded-xl bg-canvas border border-borderSubtle flex flex-col justify-between hover:border-borderMedium transition relative overflow-hidden">
+            {/* ESCENARIO 3: OPTIMISTA (MÁXIMO DEL RANGO DE ANALISTAS) */}
+            <div
+              onClick={() => setIsValuationModelsModalOpen(true)}
+              className="p-3.5 rounded-xl bg-canvas border border-borderSubtle flex flex-col justify-between hover:border-borderMedium transition relative overflow-hidden cursor-pointer"
+              title="Máximo del Rango de Analistas (Target High) · Haz clic para ver el Consenso de Analistas"
+            >
               <div className="absolute top-0 right-0 bg-statusGreen/15 text-statusGreen text-[9px] font-bold px-2 py-0.5 rounded-bl">
                 ESCENARIO ALCISTA
               </div>
@@ -1408,18 +1429,18 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
                 <div className="flex items-center justify-between pb-2 border-b border-borderSubtle/60">
                   <span className="text-xs font-bold text-textPrimary">3. Escenario Optimista</span>
                   <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-card text-statusGreen font-bold mr-24">
-                    g_opt: {(selectedCompany.escenario_optimista.g * 100).toFixed(1)}%
+                    Rango Alto
                   </span>
                 </div>
                 <div className="mt-2.5 space-y-1.5 text-xs font-mono">
                   <div className="flex justify-between">
-                    <span className="text-textSecondary">Crecimiento (g):</span>
+                    <span className="text-textSecondary">Referencia:</span>
                     <span className="text-textPrimary font-semibold">
-                      {(selectedCompany.escenario_optimista.g * 100).toFixed(1)}%
+                      Máx. Analistas
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-textSecondary">VP Teórico:</span>
+                    <span className="text-textSecondary">Target High:</span>
                     <span className="text-textPrimary font-semibold">
                       {currSym}{selectedCompany.escenario_optimista.VP_teorico.toFixed(2)}
                     </span>
@@ -1607,6 +1628,22 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
         onBuyTrade={onOpenBuyTrade}
         onAddToWatchlist={onAddToWatchlist}
       />
+
+      {/* Modal de Consenso Institucional de Analistas */}
+      {selectedCompany && (
+        <ValuationModelsModal
+          isOpen={isValuationModelsModalOpen}
+          onClose={() => setIsValuationModelsModalOpen(false)}
+          ticker={selectedCompany.ticker}
+          companyName={selectedCompany.nombre}
+          currentPrice={selectedCompany.precio_cierre_P0}
+          fairValue={selectedCompany.fair_value_teorico ?? selectedCompany.escenario_neutro.VP_teorico}
+          currencySymbol={currSym}
+          initialConsensus={selectedCompany.consenso_analistas}
+          initialModels={selectedCompany.modelos_valoracion_11}
+          initialSummary={selectedCompany.resumen_valoracion_11}
+        />
+      )}
     </section>
   );
 };

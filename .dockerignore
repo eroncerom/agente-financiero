@@ -1,0 +1,43 @@
+# Dependencias y builds locales
+node_modules
+dist
+dist-package
+
+# Control de versiones e IDE
+.git
+.gitignore
+.vscode
+.idea
+
+# Ejecutables y empaquetados de escritorio Windows (evita inflar el contexto Docker)
+*.exe
+*.zip
+*.bat
+*.cs
+*.ico
+LEEME-INSTALACION.txt
+dashboard_preview.html
+
+# Archivos temporales, logs y bases de datos secundarias/WAL
+*.log
+*.db-shm
+*.db-wal
+server/database.sqlite
+data/
+
+# Cachés pesadas de SEC EDGAR (~444 MB de CIK*.json que se descargan bajo demanda) y snapshots
+server/data/sec_cache/CIK*.json
+server/data/snapshots/
+server/data/sp500_universe_200_backup.json
+
+# Cachés de Python (scripts offline de calibración)
+__pycache__
+*.pyc
+server/**/*.py
+engine/
+benchmark_results*.json
+
+# Variables de entorno locales
+.env
+.env.*
+!.env.example

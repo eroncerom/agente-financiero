@@ -1,0 +1,24 @@
+services:
+  agente-financiero:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agente-financiero
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3001}:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - HOST=0.0.0.0
+      - DB_PATH=/app/data/portfolio.db
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - AI_API_KEY=${AI_API_KEY:-}
+      - AI_MODEL=${AI_MODEL:-}
+      - SEED_DEMO_DATA=${SEED_DEMO_DATA:-false}
+    volumes:
+      - agente_financiero_data:/app/data
+
+volumes:
+  agente_financiero_data:
+    driver: local

@@ -14,6 +14,7 @@ import {
   SlidersHorizontal
 } from 'lucide-react';
 import { Pilar1Result } from '../types';
+import { ValuationModelsModal } from './ValuationModelsModal';
 
 interface AssetComparisonModalProps {
   isOpen: boolean;
@@ -42,6 +43,7 @@ export const AssetComparisonModal: React.FC<AssetComparisonModalProps> = ({
 
   const [asset1, setAsset1] = useState<Pilar1Result | null>(null);
   const [asset2, setAsset2] = useState<Pilar1Result | null>(null);
+  const [modalAsset, setModalAsset] = useState<Pilar1Result | null>(null);
   const [suggestedPeers, setSuggestedPeers] = useState<string[]>([]);
   const [comparisonSummary, setComparisonSummary] = useState<{ mosWinner: string | null; scoreWinner: string | null } | null>(null);
 
@@ -332,10 +334,15 @@ export const AssetComparisonModal: React.FC<AssetComparisonModalProps> = ({
 
                   {/* Resumen Métricas Clave */}
                   <div className="grid grid-cols-3 gap-2 p-2.5 rounded-lg bg-canvas border border-borderSubtle text-center font-mono text-xs">
-                    <div>
-                      <span className="text-[10px] text-textSecondary block font-sans">Fair Value</span>
-                      <strong className="text-textPrimary">{sym1}{(asset1.fair_value_teorico ?? asset1.precio_cierre_P0).toFixed(2)}</strong>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setModalAsset(asset1)}
+                      className="cursor-pointer hover:bg-cardSecondary/70 rounded p-1 -m-1 transition group"
+                      title="Haz clic para ver el desglose de los 11 Modelos de Valoración"
+                    >
+                      <span className="text-[10px] text-accentSky block font-sans font-bold group-hover:underline">Fair Value (11 mod. ↗)</span>
+                      <strong className="text-textPrimary underline decoration-dotted">{sym1}{(asset1.fair_value_teorico ?? asset1.precio_cierre_P0).toFixed(2)}</strong>
+                    </button>
                     <div>
                       <span className="text-[10px] text-textSecondary block font-sans">Techo MoS {mosDiscount}%</span>
                       <strong className={p0_1 <= mos1 ? 'text-statusGreen' : 'text-accentYellow'}>
@@ -385,10 +392,15 @@ export const AssetComparisonModal: React.FC<AssetComparisonModalProps> = ({
 
                   {/* Resumen Métricas Clave */}
                   <div className="grid grid-cols-3 gap-2 p-2.5 rounded-lg bg-canvas border border-borderSubtle text-center font-mono text-xs">
-                    <div>
-                      <span className="text-[10px] text-textSecondary block font-sans">Fair Value</span>
-                      <strong className="text-textPrimary">{sym2}{(asset2.fair_value_teorico ?? asset2.precio_cierre_P0).toFixed(2)}</strong>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setModalAsset(asset2)}
+                      className="cursor-pointer hover:bg-cardSecondary/70 rounded p-1 -m-1 transition group"
+                      title="Haz clic para ver el desglose de los 11 Modelos de Valoración"
+                    >
+                      <span className="text-[10px] text-accentSky block font-sans font-bold group-hover:underline">Fair Value (11 mod. ↗)</span>
+                      <strong className="text-textPrimary underline decoration-dotted">{sym2}{(asset2.fair_value_teorico ?? asset2.precio_cierre_P0).toFixed(2)}</strong>
+                    </button>
                     <div>
                       <span className="text-[10px] text-textSecondary block font-sans">Techo MoS {mosDiscount}%</span>
                       <strong className={p0_2 <= mos2 ? 'text-statusGreen' : 'text-accentYellow'}>
@@ -755,6 +767,20 @@ export const AssetComparisonModal: React.FC<AssetComparisonModalProps> = ({
           </div>
         </div>
       </div>
+
+      {modalAsset && (
+        <ValuationModelsModal
+          isOpen={Boolean(modalAsset)}
+          onClose={() => setModalAsset(null)}
+          ticker={modalAsset.ticker}
+          companyName={modalAsset.nombre}
+          currentPrice={modalAsset.precio_cierre_P0}
+          fairValue={modalAsset.fair_value_teorico ?? modalAsset.precio_cierre_P0}
+          currencySymbol={modalAsset.currency === 'EUR' ? '€' : '$'}
+          initialModels={modalAsset.modelos_valoracion_11}
+          initialSummary={modalAsset.resumen_valoracion_11}
+        />
+      )}
     </div>
   );
 };

@@ -1,6 +1,17 @@
 // Manejo robusto de señales y errores de pipes rotos (evita cierres por EPIPE en Windows)
 process.stdout?.on('error', (err) => { if (err.code === 'EPIPE') return; });
 process.stderr?.on('error', (err) => { if (err.code === 'EPIPE') return; });
+
+// Suprimir ExperimentalWarning de node:sqlite en stderr para evitar falsos positivos en el launcher de Windows
+const originalEmitWarning = process.emitWarning;
+process.emitWarning = function (warning, ...args) {
+  const msg = typeof warning === 'string' ? warning : (warning?.message || '');
+  if (msg.includes('SQLite is an experimental feature')) {
+    return;
+  }
+  return originalEmitWarning.call(process, warning, ...args);
+};
+
 process.on('uncaughtException', (err) => {
   try {
     fs.appendFileSync(path.join(process.cwd(), 'server_error.log'), `${new Date().toISOString()} [UNCAUGHT] ${err.stack || err.message}\n`);
@@ -39,10 +50,21 @@ let ultimoScanPilar1 = null;
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
+const HOST = process.env.HOST || null;
 
 app.use(cors());
 app.use(compression());
 app.use(express.json());
+
+// Endpoint de Healthcheck para Docker y plataformas Cloud (Cloud Run, Railway, Render, Fly.io)
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'agente-financiero',
+    uptime: Math.round(process.uptime()),
+    timestamp: new Date().toISOString()
+  });
+});
 
 // Función centralizada para consolidar portafolio con métricas de mercado y sectoriales
 export async function getConsolidatedPortfolio() {
@@ -129,7 +151,10 @@ export async function getConsolidatedPortfolio() {
     portfolioTotalCostEUR += (pos.total_cost + pos.total_fees) * rateToEur;
     portfolioTotalValueEUR += valEur;
 
-    const valModel = obtenerValuacionTicker(ticker);
+    let valModel = obtenerValuacionTicker(ticker);
+    if (!valModel) {
+      valModel = await auditarActivoCompleto(ticker, 0.20).catch(() => null);
+    }
     const fairValueFund = valModel?.escalera_mos?.fair_value || null;
     const mosBuyCeiling = valModel?.techo_maximo_compra || null;
 
@@ -823,7 +848,10 @@ app.get('/api/quote/:ticker', async (req, res) => {
       priceEUR = Number((price / eurUsdRate).toFixed(4));
     }
 
-    const valModel = obtenerValuacionTicker(ticker, price);
+    let valModel = obtenerValuacionTicker(ticker, price);
+    if (!valModel) {
+      valModel = await auditarActivoCompleto(ticker, 0.20).catch(() => null);
+    }
     const fairValue = valModel?.fair_value_teorico || valModel?.escalera_mos?.fair_value || null;
     const mosCeiling = valModel?.techo_maximo_compra || null;
     const high52 = quote?.fifty_two_week_high || valModel?.fifty_two_week_high || null;
@@ -848,7 +876,10 @@ app.get('/api/quote/:ticker', async (req, res) => {
       arquetipo,
       quality_tier: qualityTier,
       modelo_valoracion: modeloValoracion,
-      formula_valoracion: formulaValoracion
+      formula_valoracion: formulaValoracion,
+      consenso_analistas: valModel?.consenso_analistas || null,
+      modelos_valoracion_11: valModel?.modelos_valoracion_11 || null,
+      resumen_valoracion_11: valModel?.resumen_valoracion_11 || null
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -910,7 +941,10 @@ app.post('/api/market/batch-live-quotes', async (req, res) => {
           );
         } catch {}
 
-        const valModel = obtenerValuacionTicker(upperTkr, q.price);
+        let valModel = obtenerValuacionTicker(upperTkr, q.price);
+        if (!valModel) {
+          valModel = await auditarActivoCompleto(upperTkr, 0.20).catch(() => null);
+        }
         quotesMap[upperTkr] = {
           ticker: upperTkr,
           price: q.price,
@@ -1222,7 +1256,7 @@ app.get('/api/watchlist', async (req, res) => {
     const quotes = db.prepare('SELECT * FROM market_quotes').all();
     const quotesMap = new Map(quotes.map(q => [q.ticker.toUpperCase(), q]));
 
-    const enriched = items.map(item => {
+    const enriched = await Promise.all(items.map(async item => {
       const t = item.ticker.toUpperCase();
       const live = liveMap.get(t);
       const q = quotesMap.get(t);
@@ -1236,8 +1270,11 @@ app.get('/api/watchlist', async (req, res) => {
       const diffAmount = Number((pActual - item.added_price).toFixed(2));
       const diffPct = item.added_price > 0 ? Number((((pActual - item.added_price) / item.added_price) * 100).toFixed(2)) : 0;
 
-      // Valoración del Pilar 1 para contextualizar la curva
-      const valPilar1 = obtenerValuacionTicker(t, pActual);
+      // Valoración del Pilar 1 para contextualizar la curva (incluyendo empresas fuera del S&P 500)
+      let valPilar1 = obtenerValuacionTicker(t, pActual);
+      if (!valPilar1) {
+        valPilar1 = await auditarActivoCompleto(t, 0.20).catch(() => null);
+      }
       const fairValue = valPilar1?.fair_value_teorico || null;
       const techoMoS = valPilar1?.techo_maximo_compra || null;
       const diffVsMoSPct = (techoMoS && pActual) ? Number((((pActual - techoMoS) / techoMoS) * 100).toFixed(1)) : null;
@@ -1263,7 +1300,7 @@ app.get('/api/watchlist', async (req, res) => {
         high_52w: high52,
         low_52w: low52
       };
-    });
+    }));
 
     res.json(enriched);
   } catch (err) {
@@ -1534,6 +1571,12 @@ if (fs.existsSync(DIST_PATH)) {
   });
 }
 
-app.listen(PORT, () => {
-  console.log(`[API Server] Corriendo en http://localhost:${PORT}`);
-});
+if (HOST) {
+  app.listen(PORT, HOST, () => {
+    console.log(`[API Server] Corriendo en http://${HOST}:${PORT}`);
+  });
+} else {
+  app.listen(PORT, () => {
+    console.log(`[API Server] Corriendo en http://localhost:${PORT}`);
+  });
+}

@@ -10,7 +10,8 @@ import {
   Award
 } from 'lucide-react';
 import { StockPriceChart } from './StockPriceChart';
-import { Currency } from '../types';
+import { Currency, ValuationModel11Item, ValuationModels11Summary } from '../types';
+import { ValuationModelsModal } from './ValuationModelsModal';
 
 export interface SearchAssetItem {
   ticker: string;
@@ -56,6 +57,8 @@ interface QuoteDetail {
   quality_tier?: string | null;
   modelo_valoracion?: string | null;
   formula_valoracion?: string | null;
+  modelos_valoracion_11?: ValuationModel11Item[] | null;
+  resumen_valoracion_11?: ValuationModels11Summary | null;
 }
 
 export const AssetSearchModal: React.FC<AssetSearchModalProps> = ({
@@ -71,6 +74,7 @@ export const AssetSearchModal: React.FC<AssetSearchModalProps> = ({
 }) => {
   const [quote, setQuote] = useState<QuoteDetail | null>(null);
   const [isLoadingQuote, setIsLoadingQuote] = useState(false);
+  const [isValuationModelsOpen, setIsValuationModelsOpen] = useState(false);
 
   useEffect(() => {
     if (!isOpen || !asset?.ticker) {
@@ -211,20 +215,22 @@ export const AssetSearchModal: React.FC<AssetSearchModalProps> = ({
             )}
           </div>
 
-          <div>
-            <span className="text-[10px] text-textSecondary uppercase block font-semibold">
-              Valor Intrínseco Justo
+          <div
+            onClick={() => setIsValuationModelsOpen(true)}
+            className="cursor-pointer group rounded-lg p-1.5 -m-1.5 hover:bg-cardSecondary/60 transition"
+            title="Haz clic para abrir el desglose de los 11 Modelos de Valoración"
+          >
+            <span className="text-[10px] text-accentSky uppercase block font-bold group-hover:underline">
+              Fair Value (11 Modelos ↗)
             </span>
-            <span className="text-base font-bold font-mono text-emerald-400 mt-0.5 block">
-              {quote?.fair_value ? `${sym}${quote.fair_value.toFixed(2)}` : 'Auditoría requerida'}
+            <span className="text-base font-bold font-mono text-emerald-400 mt-0.5 block underline decoration-dotted">
+              {quote?.fair_value ? `${sym}${quote.fair_value.toFixed(2)}` : 'Ver 11 Modelos'}
             </span>
             <span 
               className="text-[10px] text-textSecondary font-mono truncate block max-w-[140px]"
-              title={quote?.modelo_valoracion || 'Fair Value Teórico Fundamental'}
+              title={quote?.modelo_valoracion || 'Motor Multimodelo (11 Modelos)'}
             >
-              {quote?.modelo_valoracion 
-                ? quote.modelo_valoracion.split('(')[0].trim() 
-                : 'Fair Value Teórico'}
+              Clic para ver desglose (11 mod.)
             </span>
           </div>
 
@@ -358,6 +364,19 @@ export const AssetSearchModal: React.FC<AssetSearchModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Modal de Desglose de los 11 Modelos de Valoración */}
+      <ValuationModelsModal
+        isOpen={isValuationModelsOpen}
+        onClose={() => setIsValuationModelsOpen(false)}
+        ticker={asset.ticker}
+        companyName={companyName}
+        currentPrice={currentPrice}
+        fairValue={quote?.fair_value || undefined}
+        currencySymbol={sym}
+        initialModels={quote?.modelos_valoracion_11}
+        initialSummary={quote?.resumen_valoracion_11}
+      />
     </div>
   );
 };

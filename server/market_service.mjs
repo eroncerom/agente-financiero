@@ -47,42 +47,331 @@ async function getValidYahooSession() {
 }
 
 /**
- * Obtiene el consenso institucional de analistas de Wall Street (Target Mean / Median / High / Low)
- * utilizando sesión autenticada con crumb de Yahoo Finance.
+ * Calcula la Media del Consenso de Analistas eliminando sesgos extremos (Trimmed Consensus Mean).
+ * Si N >= 4 analistas y existen Low/High, descarta matemáticamente la cola inferior (targetLow)
+ * y superior (targetHigh) de la suma agregada y ancla frente a sesgos asimétricos con la mediana.
+ */
+export function calcularMediaConsensoSinSesgos({
+  targetMean,
+  targetMedian,
+  targetLow,
+  targetHigh,
+  numAnalysts,
+  argusTarget,
+  tcFairValue,
+  firmsTargets = []
+}) {
+  const mean = targetMean > 0 ? Number(targetMean) : null;
+  const median = targetMedian > 0 ? Number(targetMedian) : mean;
+  const low = targetLow > 0 ? Number(targetLow) : null;
+  const high = targetHigh > 0 ? Number(targetHigh) : null;
+  const n = numAnalysts > 0 ? Number(numAnalysts) : 0;
+
+  // 1. Si existe consenso oficial de Wall Street (LSEG / Yahoo)
+  if (mean && mean > 0) {
+    let trimmedWallSt = mean;
+    if (n >= 4 && low && high && high > low) {
+      const rawTrimmed = (n * mean - high - low) / (n - 2);
+      if (rawTrimmed >= low && rawTrimmed <= high) {
+        trimmedWallSt = rawTrimmed;
+      }
+    }
+    // Si aún existe asimetría fuerte (>10%) respecto a la mediana por un segundo outlier, suavizar con la mediana
+    if (median && median > 0) {
+      const skewRatio = Math.abs(trimmedWallSt - median) / median;
+      if (skewRatio > 0.10) {
+        trimmedWallSt = 0.60 * trimmedWallSt + 0.40 * median;
+      } else {
+        trimmedWallSt = 0.80 * trimmedWallSt + 0.20 * median;
+      }
+    }
+    return Number(trimmedWallSt.toFixed(2));
+  }
+
+  // 2. Respaldo en casas independientes (Argus Research / Trading Central / Bancos recientes)
+  const fallbackPool = [
+    median,
+    argusTarget > 0 ? Number(argusTarget) : null,
+    tcFairValue > 0 ? Number(tcFairValue) : null,
+    ...firmsTargets.filter(v => v > 0)
+  ].filter(v => v != null && v > 0).sort((a, b) => a - b);
+
+  if (fallbackPool.length === 0) return null;
+  if (fallbackPool.length >= 4) {
+    const inner = fallbackPool.slice(1, -1);
+    const avg = inner.reduce((acc, v) => acc + v, 0) / inner.length;
+    return Number(avg.toFixed(2));
+  }
+  const avg = fallbackPool.reduce((acc, v) => acc + v, 0) / fallbackPool.length;
+  return Number(avg.toFixed(2));
+}
+
+/**
+ * Lee de SQLite el consenso externo de analistas cacheado para un ticker.
+ */
+export function getCachedAnalystConsensus(ticker) {
+  if (!ticker) return null;
+  try {
+    const clean = ticker.trim().toUpperCase();
+    const row = db.prepare('SELECT * FROM analyst_consensus_cache WHERE ticker = ?').get(clean);
+    if (!row) return null;
+    let trend = null;
+    let firms = [];
+    try { trend = row.trend_json ? JSON.parse(row.trend_json) : null; } catch {}
+    try { firms = row.firms_json ? JSON.parse(row.firms_json) : []; } catch {}
+    return {
+      ticker: row.ticker,
+      target_mean: row.target_mean,
+      target_median: row.target_median,
+      target_low: row.target_low,
+      target_high: row.target_high,
+      fair_value_debiased: row.fair_value_debiased,
+      number_of_analysts: row.num_analysts,
+      recommendation_key: row.recommendation_key,
+      recommendation_mean: row.recommendation_mean,
+      argus_target: row.argus_target,
+      argus_rating: row.argus_rating,
+      tc_fair_value: row.tc_fair_value,
+      tc_description: row.tc_description,
+      tc_discount: row.tc_discount,
+      recommendation_trend: trend,
+      recent_firms: firms,
+      updated_at: row.updated_at
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Guarda en SQLite el consenso externo de analistas de un ticker.
+ */
+export function saveAnalystConsensusToCache(ticker, data) {
+  if (!ticker || !data) return;
+  try {
+    const clean = ticker.trim().toUpperCase();
+    db.prepare(`
+      INSERT INTO analyst_consensus_cache (
+        ticker, target_mean, target_median, target_low, target_high, fair_value_debiased,
+        num_analysts, recommendation_key, recommendation_mean,
+        argus_target, argus_rating, tc_fair_value, tc_description, tc_discount,
+        trend_json, firms_json, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(ticker) DO UPDATE SET
+        target_mean = COALESCE(excluded.target_mean, analyst_consensus_cache.target_mean),
+        target_median = COALESCE(excluded.target_median, analyst_consensus_cache.target_median),
+        target_low = COALESCE(excluded.target_low, analyst_consensus_cache.target_low),
+        target_high = COALESCE(excluded.target_high, analyst_consensus_cache.target_high),
+        fair_value_debiased = COALESCE(excluded.fair_value_debiased, analyst_consensus_cache.fair_value_debiased),
+        num_analysts = COALESCE(excluded.num_analysts, analyst_consensus_cache.num_analysts),
+        recommendation_key = COALESCE(excluded.recommendation_key, analyst_consensus_cache.recommendation_key),
+        recommendation_mean = COALESCE(excluded.recommendation_mean, analyst_consensus_cache.recommendation_mean),
+        argus_target = COALESCE(excluded.argus_target, analyst_consensus_cache.argus_target),
+        argus_rating = COALESCE(excluded.argus_rating, analyst_consensus_cache.argus_rating),
+        tc_fair_value = COALESCE(excluded.tc_fair_value, analyst_consensus_cache.tc_fair_value),
+        tc_description = COALESCE(excluded.tc_description, analyst_consensus_cache.tc_description),
+        tc_discount = COALESCE(excluded.tc_discount, analyst_consensus_cache.tc_discount),
+        trend_json = COALESCE(excluded.trend_json, analyst_consensus_cache.trend_json),
+        firms_json = COALESCE(excluded.firms_json, analyst_consensus_cache.firms_json),
+        updated_at = CURRENT_TIMESTAMP
+    `).run(
+      clean,
+      data.target_mean ?? null,
+      data.target_median ?? null,
+      data.target_low ?? null,
+      data.target_high ?? null,
+      data.fair_value_debiased ?? null,
+      data.number_of_analysts ?? null,
+      data.recommendation_key ?? null,
+      data.recommendation_mean ?? null,
+      data.argus_target ?? null,
+      data.argus_rating ?? null,
+      data.tc_fair_value ?? null,
+      data.tc_description ?? null,
+      data.tc_discount ?? null,
+      data.recommendation_trend ? JSON.stringify(data.recommendation_trend) : null,
+      data.recent_firms ? JSON.stringify(data.recent_firms) : null
+    );
+  } catch (err) {
+    console.warn(`[MarketService] Error guardando caché de analistas para ${ticker}:`, err.message);
+  }
+}
+
+/**
+ * Obtiene el consenso institucional de analistas de Wall Street (Target Mean / Median / High / Low),
+ * Argus Research, Trading Central, distribución de recomendaciones e historial de Bancos de Inversión,
+ * además de fundamentales clave en tiempo real utilizando sesión autenticada con crumb de Yahoo Finance.
  */
 export async function fetchInstitutionalConsensus(ticker) {
   try {
     const cleanTicker = ticker.trim().toUpperCase();
     const session = await getValidYahooSession();
-    if (!session?.crumb) return null;
+    if (!session?.crumb) return getCachedAnalystConsensus(cleanTicker);
 
-    const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(cleanTicker)}?modules=financialData,defaultKeyStatistics&crumb=${encodeURIComponent(session.crumb)}`;
-    const resp = await fetch(url, {
-      headers: { 'User-Agent': USER_AGENT, cookie: session.cookie }
-    });
-    if (!resp.ok) return null;
+    const qsUrl = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(cleanTicker)}?modules=financialData,recommendationTrend,upgradeDowngradeHistory,defaultKeyStatistics,assetProfile,summaryDetail&crumb=${encodeURIComponent(session.crumb)}`;
+    const insUrl = `https://query2.finance.yahoo.com/ws/insights/v2/finance/insights?symbol=${encodeURIComponent(cleanTicker)}&crumb=${encodeURIComponent(session.crumb)}`;
+
+    const [resp, insResp] = await Promise.all([
+      fetch(qsUrl, { headers: { 'User-Agent': USER_AGENT, cookie: session.cookie } }).catch(() => null),
+      fetch(insUrl, { headers: { 'User-Agent': USER_AGENT, cookie: session.cookie } }).catch(() => null)
+    ]);
+
+    if (!resp || !resp.ok) return getCachedAnalystConsensus(cleanTicker);
     const json = await resp.json();
-    const fd = json?.quoteSummary?.result?.[0]?.financialData;
-    if (!fd) return null;
+    const res0 = json?.quoteSummary?.result?.[0];
+    const fd = res0?.financialData;
+    const ks = res0?.defaultKeyStatistics;
+    const ap = res0?.assetProfile;
+    const sd = res0?.summaryDetail;
+    if (!fd && !ks) return getCachedAnalystConsensus(cleanTicker);
 
-    const targetMean = fd.targetMeanPrice?.raw ?? null;
-    const targetMedian = fd.targetMedianPrice?.raw ?? null;
-    const targetHigh = fd.targetHighPrice?.raw ?? null;
-    const targetLow = fd.targetLowPrice?.raw ?? null;
-    const numAnalysts = fd.numberOfAnalystOpinions?.raw ?? null;
+    let insResult = null;
+    if (insResp && insResp.ok) {
+      try {
+        const insJson = await insResp.json();
+        insResult = insJson?.finance?.result || null;
+      } catch {}
+    }
 
-    if (!targetMean && !targetMedian) return null;
+    const p0 = fd?.currentPrice?.raw ?? null;
+    const targetMean = fd?.targetMeanPrice?.raw ?? null;
+    const targetMedian = fd?.targetMedianPrice?.raw ?? null;
+    const targetHigh = fd?.targetHighPrice?.raw ?? null;
+    const targetLow = fd?.targetLowPrice?.raw ?? null;
+    const numAnalysts = fd?.numberOfAnalystOpinions?.raw ?? null;
+    const recommendationKey = fd?.recommendationKey ?? null;
+    const recommendationMean = fd?.recommendationMean?.raw != null ? Number(fd.recommendationMean.raw.toFixed(2)) : null;
 
-    return {
+    // Tendencia de analistas (Strong Buy, Buy, Hold, Sell, Strong Sell)
+    const trend0 = res0?.recommendationTrend?.trend?.[0] || null;
+    const recommendationTrend = trend0 ? {
+      strongBuy: Number(trend0.strongBuy || 0),
+      buy: Number(trend0.buy || 0),
+      hold: Number(trend0.hold || 0),
+      sell: Number(trend0.sell || 0),
+      strongSell: Number(trend0.strongSell || 0)
+    } : null;
+
+    // Argus Research & Trading Central desde Insights v2
+    const argusTarget = insResult?.recommendation?.targetPrice > 0 ? Number(insResult.recommendation.targetPrice) : null;
+    const argusRating = insResult?.recommendation?.rating || null;
+    const tcVal = insResult?.instrumentInfo?.valuation || null;
+    const tcDescription = tcVal?.description || null;
+    const tcDiscount = tcVal?.discount || null;
+    let tcFairValue = null;
+    if (p0 > 0 && tcDiscount) {
+      const pctNum = parseFloat(String(tcDiscount).replace('%', ''));
+      if (Number.isFinite(pctNum) && Math.abs(pctNum) <= 75) {
+        tcFairValue = Number((p0 * (1 + pctNum / 100)).toFixed(2));
+      }
+    }
+
+    // Historial de Bancos de Inversión (upgradeDowngradeHistory)
+    const rawHistory = Array.isArray(res0?.upgradeDowngradeHistory?.history) ? res0.upgradeDowngradeHistory.history : [];
+    const seenFirms = new Set();
+    const recentFirms = [];
+    for (const h of rawHistory) {
+      if (!h?.firm) continue;
+      const firmKey = h.firm.trim().toLowerCase();
+      // Priorizar la última actualización de cada banco con precio objetivo o calificación reciente
+      if (seenFirms.has(firmKey)) continue;
+      const pt = h.currentPriceTarget > 0 ? Number(h.currentPriceTarget) : null;
+      const priorPt = h.priorPriceTarget > 0 ? Number(h.priorPriceTarget) : null;
+      if (!pt && recentFirms.length >= 8) continue;
+      seenFirms.add(firmKey);
+      const dateStr = h.epochGradeDate
+        ? new Date(h.epochGradeDate * 1000).toISOString().split('T')[0]
+        : null;
+      recentFirms.push({
+        firm: h.firm.trim(),
+        toGrade: h.toGrade || 'N/A',
+        fromGrade: h.fromGrade || null,
+        action: h.action || 'main',
+        priceTarget: pt,
+        priorTarget: priorPt,
+        date: dateStr
+      });
+      if (recentFirms.length >= 14) break;
+    }
+
+    const firmsTargets = recentFirms.map(f => f.priceTarget).filter(v => v != null && v > 0);
+    const fairValueDebiased = calcularMediaConsensoSinSesgos({
+      targetMean,
+      targetMedian,
+      targetLow,
+      targetHigh,
+      numAnalysts,
+      argusTarget,
+      tcFairValue,
+      firmsTargets
+    });
+
+    const shares = ks?.sharesOutstanding?.raw ?? ks?.impliedSharesOutstanding?.raw ?? null;
+    const totalDebt = fd?.totalDebt?.raw ?? null;
+    const totalCash = fd?.totalCash?.raw ?? 0;
+    const ebitda = fd?.ebitda?.raw ?? null;
+    const totalRevenue = fd?.totalRevenue?.raw ?? null;
+    const opMargin = fd?.operatingMargins?.raw ?? null;
+    const ocf = fd?.operatingCashflow?.raw ?? null;
+    const fcf = fd?.freeCashflow?.raw ?? null;
+
+    const netDebt = totalDebt != null ? (totalDebt - totalCash) : null;
+    const netDebtPerShare = (netDebt != null && shares && shares > 0) ? Number((netDebt / shares).toFixed(2)) : null;
+    const netDebtEbitda = (netDebt != null && ebitda && ebitda > 0) ? Number((netDebt / ebitda).toFixed(2)) : null;
+    const ocfPerShare = (ocf != null && shares && shares > 0) ? Number((ocf / shares).toFixed(2)) : null;
+    const fcfPerShare = (fcf != null && shares && shares > 0) ? Number((fcf / shares).toFixed(2)) : null;
+    const revPerShare = fd?.revenuePerShare?.raw != null
+      ? Number(fd.revenuePerShare.raw.toFixed(2))
+      : ((totalRevenue != null && shares && shares > 0) ? Number((totalRevenue / shares).toFixed(2)) : null);
+    const ebitdaPerShare = (ebitda != null && shares && shares > 0) ? Number((ebitda / shares).toFixed(2)) : null;
+    const ebitPerShare = (revPerShare != null && opMargin != null)
+      ? Number((revPerShare * opMargin).toFixed(2))
+      : (ebitdaPerShare != null ? Number((ebitdaPerShare * 0.84).toFixed(2)) : null);
+    const nopatPerShare = ebitPerShare != null ? Number((ebitPerShare * 0.79).toFixed(2)) : null;
+
+    const resultObj = {
       target_mean: targetMean ? Number(targetMean.toFixed(2)) : null,
       target_median: targetMedian ? Number(targetMedian.toFixed(2)) : null,
       target_high: targetHigh ? Number(targetHigh.toFixed(2)) : null,
       target_low: targetLow ? Number(targetLow.toFixed(2)) : null,
-      number_of_analysts: numAnalysts
+      fair_value_debiased: fairValueDebiased,
+      number_of_analysts: numAnalysts,
+      recommendation_key: recommendationKey,
+      recommendation_mean: recommendationMean,
+      recommendation_trend: recommendationTrend,
+      argus_target: argusTarget,
+      argus_rating: argusRating,
+      tc_fair_value: tcFairValue,
+      tc_description: tcDescription,
+      tc_discount: tcDiscount,
+      recent_firms: recentFirms,
+      trailing_eps: ks?.trailingEps?.raw != null ? Number(ks.trailingEps.raw.toFixed(2)) : null,
+      forward_eps: ks?.forwardEps?.raw != null ? Number(ks.forwardEps.raw.toFixed(2)) : null,
+      beta: (ks?.beta?.raw ?? sd?.beta?.raw) != null ? Number((ks?.beta?.raw ?? sd?.beta?.raw).toFixed(3)) : null,
+      book_value_per_share: ks?.bookValue?.raw != null ? Number(ks.bookValue.raw.toFixed(2)) : null,
+      dividend_rate: sd?.dividendRate?.raw != null ? Number(sd.dividendRate.raw.toFixed(2)) : null,
+      roe: fd?.returnOnEquity?.raw != null ? Number(fd.returnOnEquity.raw.toFixed(4)) : null,
+      roa: fd?.returnOnAssets?.raw != null ? Number(fd.returnOnAssets.raw.toFixed(4)) : null,
+      revenue_growth: fd?.revenueGrowth?.raw != null ? Number(fd.revenueGrowth.raw.toFixed(4)) : null,
+      earnings_growth: fd?.earningsGrowth?.raw != null ? Number(fd.earningsGrowth.raw.toFixed(4)) : null,
+      revenue_per_share: revPerShare,
+      ebitda_per_share: ebitdaPerShare,
+      ebit_per_share: ebitPerShare,
+      nopat_per_share: nopatPerShare,
+      operating_margin: opMargin != null ? Number(opMargin.toFixed(4)) : null,
+      net_debt_per_share: netDebtPerShare,
+      net_debt_ebitda: netDebtEbitda,
+      ocf_per_share: ocfPerShare,
+      fcf_per_share: fcfPerShare,
+      sector: ap?.sector || null,
+      industry: ap?.industry || null
     };
+
+    saveAnalystConsensusToCache(cleanTicker, resultObj);
+    return resultObj;
   } catch (err) {
     console.warn(`[MarketService] No se pudo obtener consenso para ${ticker}:`, err.message);
-    return null;
+    return getCachedAnalystConsensus(ticker);
   }
 }
 

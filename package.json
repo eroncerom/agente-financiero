@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "start": "node server/api.mjs",
     "dev:server": "node server/api.mjs",
     "dev:ui": "vite",
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:ui\"",

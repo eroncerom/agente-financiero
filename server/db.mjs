@@ -1,12 +1,36 @@
+import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const DB_PATH = path.resolve(__dirname, '..', 'portfolio.db');
+const DEFAULT_DB_PATH = path.resolve(__dirname, '..', 'portfolio.db');
+export const DB_PATH = process.env.DB_PATH
+  ? path.resolve(process.env.DB_PATH)
+  : DEFAULT_DB_PATH;
+
+// Asegurar directorio para volúmenes persistentes en Docker/Cloud (ej. /app/data/portfolio.db)
+const dbDir = path.dirname(DB_PATH);
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
+
+// Si se usa un volumen externo vacío en el primer arranque, copiar la base de datos semilla si existe
+if (DB_PATH !== DEFAULT_DB_PATH && !fs.existsSync(DB_PATH) && fs.existsSync(DEFAULT_DB_PATH)) {
+  try {
+    fs.copyFileSync(DEFAULT_DB_PATH, DB_PATH);
+    console.log(`[DB Init] Base de datos semilla copiada a volumen persistente: ${DB_PATH}`);
+  } catch (err) {
+    console.warn(`[DB Init] No se pudo copiar base semilla a ${DB_PATH}:`, err.message);
+  }
+}
 
 export const db = new DatabaseSync(DB_PATH);
+try {
+  db.exec('PRAGMA journal_mode = WAL;');
+  db.exec('PRAGMA busy_timeout = 5000;');
+} catch {}
 
 export function initDatabase() {
   // 1. Portfolio Trades Table (Manual Purchases without Broker)
@@ -60,6 +84,29 @@ export function initDatabase() {
   try {
     db.exec('ALTER TABLE market_quotes ADD COLUMN target_median REAL');
   } catch {}
+
+  // 2b. Analyst Consensus Cache (External Institutional Consensus & Banks)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS analyst_consensus_cache (
+      ticker TEXT PRIMARY KEY,
+      target_mean REAL,
+      target_median REAL,
+      target_low REAL,
+      target_high REAL,
+      fair_value_debiased REAL,
+      num_analysts INTEGER,
+      recommendation_key TEXT,
+      recommendation_mean REAL,
+      argus_target REAL,
+      argus_rating TEXT,
+      tc_fair_value REAL,
+      tc_description TEXT,
+      tc_discount TEXT,
+      trend_json TEXT,
+      firms_json TEXT,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
 
   // 3. Macro Yield Curve Table
   db.exec(`

@@ -8,10 +8,12 @@ import {
   Edit3,
   Save,
   Zap,
-  ShieldCheck
+  ShieldCheck,
+  SlidersHorizontal
 } from 'lucide-react';
 import { PortfolioPosition, PortfolioTrade } from '../types';
 import { StockPriceChart } from './StockPriceChart';
+import { ValuationModelsModal } from './ValuationModelsModal';
 import { calculatePrudentTargetExit } from '../utils/valuation';
 
 interface TradeDetailModalProps {
@@ -68,6 +70,7 @@ export const TradeDetailModal: React.FC<TradeDetailModalProps> = ({
 
   // Estado para venta / liquidación (parcial o total)
   const [isSellOpen, setIsSellOpen] = useState(false);
+  const [showValuationModal, setShowValuationModal] = useState(false);
   const [sellMode, setSellMode] = useState<'TOTAL' | 'PARTIAL'>('TOTAL');
   const [sharesToSell, setSharesToSell] = useState<string>('');
   const [customSellPrice, setCustomSellPrice] = useState<string>('');
@@ -340,7 +343,7 @@ export const TradeDetailModal: React.FC<TradeDetailModalProps> = ({
 
         {/* 4. Métricas Clave de la Posición / Trade */}
         <div className="p-4 sm:p-5 overflow-y-auto space-y-4 flex-1">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3 rounded-xl bg-canvas border border-borderSubtle">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 p-3 rounded-xl bg-canvas border border-borderSubtle">
             <div>
               <span className="text-[10px] text-textSecondary block uppercase font-medium">Precio Compra</span>
               <span className="text-sm font-bold font-mono text-textPrimary">
@@ -371,6 +374,20 @@ export const TradeDetailModal: React.FC<TradeDetailModalProps> = ({
                 {position.variation_pct.toFixed(2)}%)
               </span>
             </div>
+            <button
+              type="button"
+              onClick={() => setShowValuationModal(true)}
+              className="text-left group p-1 -m-1 rounded-lg hover:bg-cardHover transition border border-transparent hover:border-accentSky/30 focus:outline-none"
+              title="Click para ver los 11 Modelos de Valoración y el desglose de Fair Value"
+            >
+              <span className="text-[10px] text-textSecondary flex items-center space-x-1 uppercase font-medium group-hover:text-accentSky">
+                <span>Fair Value (11M)</span>
+                <SlidersHorizontal className="w-2.5 h-2.5 text-accentSky opacity-75 group-hover:opacity-100" />
+              </span>
+              <span className="text-sm font-bold font-mono text-emerald-400 group-hover:underline">
+                {sym}{position.fair_value ? position.fair_value.toFixed(2) : 'N/A'}
+              </span>
+            </button>
           </div>
 
           {/* Gráfico Vectorial Interactivo: Velas Japonesas y Evolución con Rayas Meridianas */}
@@ -806,6 +823,17 @@ export const TradeDetailModal: React.FC<TradeDetailModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Modal de Detalle de los 11 Modelos de Valoración */}
+      <ValuationModelsModal
+        isOpen={showValuationModal}
+        onClose={() => setShowValuationModal(false)}
+        ticker={position.ticker}
+        companyName={position.company_name}
+        currentPrice={currentPrice}
+        fairValue={position.fair_value}
+        currencySymbol={sym}
+      />
     </div>
   );
 };

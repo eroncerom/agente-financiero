@@ -351,6 +351,84 @@ export interface Pilar1Result {
   net_debt_per_share?: number | null;
   industry?: string;
   filtro_value?: ValueFilterEvaluation;
+  consenso_analistas?: AnalystConsensusDetail;
+  modelos_valoracion_11?: ValuationModel11Item[];
+  resumen_valoracion_11?: ValuationModels11Summary;
+}
+
+export interface InvestmentBankTarget {
+  firm: string;
+  toGrade: string;
+  fromGrade?: string | null;
+  action: string;
+  priceTarget: number | null;
+  priorTarget?: number | null;
+  date: string | null;
+}
+
+export interface AnalystConsensusDetail {
+  ticker: string;
+  fair_value_debiased: number;
+  target_mean: number;
+  target_median: number;
+  target_low: number;
+  target_high: number;
+  number_of_analysts: number;
+  recommendation_key?: string | null;
+  recommendation_mean?: number | null;
+  recommendation_trend?: {
+    strongBuy: number;
+    buy: number;
+    hold: number;
+    sell: number;
+    strongSell: number;
+  } | null;
+  argus_target?: number | null;
+  argus_rating?: string | null;
+  tc_fair_value?: number | null;
+  tc_description?: string | null;
+  tc_discount?: string | null;
+  recent_firms?: InvestmentBankTarget[];
+  updated_at?: string;
+}
+
+export interface ValuationModel11Item {
+  id: string;
+  orden: number;
+  nombre: string;
+  categoria: string;
+  aplicable: boolean;
+  descartado_outlier?: boolean;
+  incluido_en_media?: boolean;
+  valor: number | null;
+  diferencia_vs_p0_pct?: number | null;
+  rango_escala_min?: number;
+  rango_escala_max?: number;
+  formula_resumen: string;
+  explicacion_pedagogica: {
+    que_es: string;
+    como_calcula: string;
+    calculo_empresa: string;
+  };
+  datos_usados?: Record<string, any>;
+}
+
+export interface ValuationModels11Summary {
+  total_modelos: number;
+  modelos_aplicables: number;
+  modelos_incluidos: number;
+  modelos_descartados_outlier: number;
+  mediana_limpia: number;
+  media_limpia: number;
+  fair_value_multimodelo: number;
+  min_limpio: number;
+  max_limpio: number;
+  escala_visual_min: number;
+  escala_visual_max: number;
+  wacc_pct: number;
+  ke_pct: number;
+  g1_pct: number;
+  gn_pct: number;
 }
 
 export interface ValueFilterCriterion {
@@ -510,6 +588,9 @@ export interface DiscardedCompanyDetail {
   net_debt_per_share?: number | null;
   industry?: string;
   filtro_value?: ValueFilterEvaluation;
+  consenso_analistas?: AnalystConsensusDetail;
+  modelos_valoracion_11?: ValuationModel11Item[];
+  resumen_valoracion_11?: ValuationModels11Summary;
 }
 
 export interface DiagnosticoPedagogico {
