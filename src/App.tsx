@@ -126,7 +126,7 @@ export const App: React.FC = () => {
   };
 
   const handleRequestFullAudit = async (ticker: string) => {
-    const cleanTicker = (ticker || searchModalAsset?.ticker || '').trim().toUpperCase();
+    const cleanTicker = (ticker || searchModalAsset?.ticker || '').replace(/[,;:\s]+$/g, '').trim().toUpperCase();
     if (!cleanTicker) return;
     try {
       setIsAuditingAsset(true);
@@ -154,7 +154,7 @@ export const App: React.FC = () => {
 
   // Cargar y auditar cualquier compañía directamente en el Pilar Central consultando datos en vivo en el momento de la petición
   const handleAuditInCentralPillar = async (ticker: string) => {
-    const cleanTicker = (ticker || selectedAssetDetail?.ticker || searchModalAsset?.ticker || '').trim().toUpperCase();
+    const cleanTicker = (ticker || selectedAssetDetail?.ticker || searchModalAsset?.ticker || '').replace(/[,;:\s]+$/g, '').trim().toUpperCase();
     if (!cleanTicker) return;
     try {
       setIsAuditingAsset(true);

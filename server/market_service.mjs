@@ -825,7 +825,8 @@ export function calculatePrudentTargetExit(buyPrice = null, high52 = null, fairV
  */
 export async function searchMarketAssets(query) {
   if (!query || query.trim().length === 0) return [];
-  const q = query.trim();
+  const q = query.replace(/[,;:\s]+$/g, '').replace(/^[,;:\s]+/g, '').trim();
+  if (!q) return [];
   const qUpper = q.toUpperCase();
   const results = [];
   const seenTickers = new Set();
@@ -898,10 +899,13 @@ export async function searchMarketAssets(query) {
       const uPath = path.resolve(__dirname, 'data', uConfig.file);
       if (fs.existsSync(uPath)) {
         const uList = JSON.parse(fs.readFileSync(uPath, 'utf-8'));
-        const matches = uList.filter(e =>
-          e.ticker.toUpperCase().includes(qUpper) ||
-          (e.nombre && e.nombre.toLowerCase().includes(q.toLowerCase()))
-        ).slice(0, 6);
+        const sortedQ = qUpper.length >= 3 && qUpper.length <= 6 ? qUpper.split('').sort().join('') : null;
+        const matches = uList.filter(e => {
+          const sym = (e.ticker || '').toUpperCase();
+          if (sym.includes(qUpper) || (e.nombre && e.nombre.toLowerCase().includes(q.toLowerCase()))) return true;
+          if (sortedQ && sym.length === qUpper.length && sym.split('').sort().join('') === sortedQ) return true;
+          return false;
+        }).slice(0, 6);
 
         for (const emp of matches) {
           const sym = emp.ticker.toUpperCase();

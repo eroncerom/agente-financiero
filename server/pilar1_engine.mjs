@@ -2042,12 +2042,16 @@ export function getCachedUniverse(market = 'SP500') {
 
 export function findTickerInAllUniverses(ticker) {
   if (!ticker) return null;
-  const cleanTicker = ticker.trim().toUpperCase();
+  const cleanTicker = ticker.replace(/[,;:\s]+$/g, '').replace(/^[,;:\s]+/g, '').trim().toUpperCase();
+  const allEntries = [];
   for (const m of ['SP500', 'NASDAQ', 'IBEX35']) {
     const universe = getCachedUniverse(m);
     const found = universe.find(e => e.ticker?.toUpperCase() === cleanTicker);
     if (found) {
       return { empresa: found, market: m };
+    }
+    for (const item of universe) {
+      if (item.ticker) allEntries.push({ empresa: item, market: m, sym: item.ticker.toUpperCase() });
     }
   }
   if (externalAuditedCache.has(cleanTicker)) {
@@ -2055,6 +2059,14 @@ export function findTickerInAllUniverses(ticker) {
       empresa: externalAuditedCache.get(cleanTicker),
       market: cleanTicker.endsWith('.MC') ? 'IBEX35' : 'SP500'
     };
+  }
+  // Auto-corrección de trasposición de letras (ej. SDNK -> SNDK, APPL -> AAPL, GOOOG -> GOOG)
+  if (cleanTicker.length >= 3 && cleanTicker.length <= 6) {
+    const sortedInput = cleanTicker.split('').sort().join('');
+    const anagramMatch = allEntries.find(e => e.sym.length === cleanTicker.length && e.sym.split('').sort().join('') === sortedInput);
+    if (anagramMatch) {
+      return { empresa: anagramMatch.empresa, market: anagramMatch.market };
+    }
   }
   return null;
 }
@@ -2122,9 +2134,10 @@ export function obtenerValuacionTicker(ticker, customPrice = null) {
  */
 export async function auditarActivoCompleto(ticker, mosDiscount = 0.25) {
   if (!ticker) return null;
-  const cleanTicker = ticker.trim().toUpperCase();
-  const match = findTickerInAllUniverses(cleanTicker);
+  const rawClean = ticker.replace(/[,;:\s]+$/g, '').replace(/^[,;:\s]+/g, '').trim().toUpperCase();
+  const match = findTickerInAllUniverses(rawClean);
   const emp = match?.empresa;
+  const cleanTicker = emp?.ticker ? emp.ticker.toUpperCase() : rawClean;
   const isSpanish = match?.market === 'IBEX35' || cleanTicker.endsWith('.MC') || emp?.currency === 'EUR';
 
   const params = leerParametrosMercado();

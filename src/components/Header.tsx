@@ -125,10 +125,11 @@ export const Header: React.FC<HeaderProps> = ({
       if (selectedIndex >= 0 && selectedIndex < results.length) {
         handleSelect(results[selectedIndex]);
       } else if (query.trim().length > 0) {
+        const cleanQuery = query.replace(/[,;:\s]+$/g, '').trim().toUpperCase();
         // Si no hay elemento seleccionado, buscar/abrir directamente el ticker tecleado
         handleSelect({
-          ticker: query.trim().toUpperCase(),
-          name: query.trim().toUpperCase(),
+          ticker: cleanQuery,
+          name: cleanQuery,
           exchange: 'Búsqueda Directa'
         });
       }
