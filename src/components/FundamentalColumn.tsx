@@ -1161,6 +1161,16 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
                 <Scale className="w-3.5 h-3.5 text-accentSky" />
                 <span>Comparar con Competidor</span>
               </button>
+
+              <button
+                type="button"
+                onClick={() => setIsCommitteeModalOpen(true)}
+                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-purple-500/20 to-accentSky/20 hover:from-purple-500/30 hover:to-accentSky/30 text-accentSky border border-accentSky/40 shadow-sm transition"
+                title="Convocar a los 3 Subagentes Especialistas en paralelo + Juez CIO"
+              >
+                <Users className="w-3.5 h-3.5 text-accentSky" />
+                <span>🏛️ Comité Multi-Agente (3 Subagentes)</span>
+              </button>
             </div>
 
             <div className="text-[10px] text-textSecondary font-mono hidden sm:flex items-center space-x-2">

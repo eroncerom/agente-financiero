@@ -12,6 +12,7 @@ import { DiscardedDetailModal } from './components/DiscardedDetailModal';
 import { AssetSearchModal, SearchAssetItem } from './components/AssetSearchModal';
 import { CompanyFinancialDeepDiveModal } from './components/CompanyFinancialDeepDiveModal';
 import { AIAssistantDrawer } from './components/AIAssistantDrawer';
+import { InvestmentCommitteeModal } from './components/InvestmentCommitteeModal';
 import { calculatePrudentTargetExitNumber } from './utils/valuation';
 import {
   PortfolioPosition,
@@ -112,8 +113,9 @@ export const App: React.FC = () => {
     setIsDeepDiveOpen(true);
   };
 
-  // Estado del Asistente / Copiloto de IA
+  // Estado del Asistente / Copiloto de IA y Comité Multi-Agente
   const [isAIChatOpen, setIsAIChatOpen] = useState(false);
+  const [isCommitteeOpen, setIsCommitteeOpen] = useState(false);
 
   // Estado del Modal de Búsqueda Rápida de Activos
   const [searchModalAsset, setSearchModalAsset] = useState<SearchAssetItem | null>(null);
@@ -746,6 +748,7 @@ export const App: React.FC = () => {
         onSelectAsset={handleSelectSearchedAsset}
         onAuditInCentralPillar={handleAuditInCentralPillar}
         onOpenAIChat={() => setIsAIChatOpen(true)}
+        onOpenCommittee={() => setIsCommitteeOpen(true)}
         selectedMarket={selectedMarket}
         onSelectMarket={handleSelectMarket}
         autoRefreshInterval={autoRefreshInterval}
@@ -983,6 +986,14 @@ export const App: React.FC = () => {
         portfolioSummary={summary}
         portfolioPositions={positions}
         macroData={macroData}
+      />
+
+      {/* Comité de Inversión Multi-Agente Global */}
+      <InvestmentCommitteeModal
+        isOpen={isCommitteeOpen}
+        ticker={selectedCompany?.ticker || selectedTicker || 'MSFT'}
+        mosDiscount={mosDiscount}
+        onClose={() => setIsCommitteeOpen(false)}
       />
     </div>
   );

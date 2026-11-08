@@ -13,7 +13,8 @@ import {
   Check,
   Zap,
   Sun,
-  Moon
+  Moon,
+  Users
 } from 'lucide-react';
 import { MacroRegime, MarketIndex } from '../types';
 import { SearchAssetItem } from './AssetSearchModal';
@@ -26,6 +27,7 @@ interface HeaderProps {
   onSelectAsset: (asset: SearchAssetItem) => void;
   onAuditInCentralPillar?: (ticker: string) => void;
   onOpenAIChat?: () => void;
+  onOpenCommittee?: () => void;
   selectedMarket: MarketIndex;
   onSelectMarket: (market: MarketIndex) => void;
   autoRefreshInterval: number;
@@ -43,6 +45,7 @@ export const Header: React.FC<HeaderProps> = ({
   onSelectAsset,
   onAuditInCentralPillar,
   onOpenAIChat,
+  onOpenCommittee,
   selectedMarket,
   onSelectMarket,
   autoRefreshInterval,
@@ -387,6 +390,19 @@ export const Header: React.FC<HeaderProps> = ({
               {macroRegime.cycle_phase}
             </span>
           </div>
+        )}
+
+        {/* Botón de Comité de Inversión Multi-Agente */}
+        {onOpenCommittee && (
+          <button
+            type="button"
+            onClick={onOpenCommittee}
+            className="flex items-center space-x-1.5 px-3 py-1 rounded-lg bg-gradient-to-r from-purple-500/20 to-accentSky/20 hover:from-purple-500/30 hover:to-accentSky/30 text-accentSky border border-accentSky/40 shadow-sm transition group cursor-pointer"
+            title="Abrir Comité de Inversión Multi-Agente (3 Subagentes Paralelos + Juez CIO)"
+          >
+            <Users className="w-3.5 h-3.5 text-accentSky group-hover:scale-110 transition-transform" />
+            <span className="text-[11px] font-bold">Comité Multi-Agente</span>
+          </button>
         )}
 
         {/* Botón de Copiloto Financiero IA */}
