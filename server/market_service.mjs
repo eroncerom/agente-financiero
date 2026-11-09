@@ -67,25 +67,9 @@ export function calcularMediaConsensoSinSesgos({
   const high = targetHigh > 0 ? Number(targetHigh) : null;
   const n = numAnalysts > 0 ? Number(numAnalysts) : 0;
 
-  // 1. Si existe consenso oficial de Wall Street (LSEG / Yahoo)
+  // 1. Si existe consenso oficial de Wall Street (LSEG / Yahoo Finance), se devuelve directamente el dato oficial no alterado
   if (mean && mean > 0) {
-    let trimmedWallSt = mean;
-    if (n >= 4 && low && high && high > low) {
-      const rawTrimmed = (n * mean - high - low) / (n - 2);
-      if (rawTrimmed >= low && rawTrimmed <= high) {
-        trimmedWallSt = rawTrimmed;
-      }
-    }
-    // Si aún existe asimetría fuerte (>10%) respecto a la mediana por un segundo outlier, suavizar con la mediana
-    if (median && median > 0) {
-      const skewRatio = Math.abs(trimmedWallSt - median) / median;
-      if (skewRatio > 0.10) {
-        trimmedWallSt = 0.60 * trimmedWallSt + 0.40 * median;
-      } else {
-        trimmedWallSt = 0.80 * trimmedWallSt + 0.20 * median;
-      }
-    }
-    return Number(trimmedWallSt.toFixed(2));
+    return Number(mean.toFixed(2));
   }
 
   // 2. Respaldo en casas independientes (Argus Research / Trading Central / Bancos recientes)

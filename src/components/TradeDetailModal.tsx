@@ -378,10 +378,10 @@ export const TradeDetailModal: React.FC<TradeDetailModalProps> = ({
               type="button"
               onClick={() => setShowValuationModal(true)}
               className="text-left group p-1 -m-1 rounded-lg hover:bg-cardHover transition border border-transparent hover:border-accentSky/30 focus:outline-none"
-              title="Click para ver los 11 Modelos de Valoración y el desglose de Fair Value"
+              title="Click para ver el Consenso Institucional de Analistas y desglose de Fair Value"
             >
               <span className="text-[10px] text-textSecondary flex items-center space-x-1 uppercase font-medium group-hover:text-accentSky">
-                <span>Fair Value (11M)</span>
+                <span>Fair Value (Consenso)</span>
                 <SlidersHorizontal className="w-2.5 h-2.5 text-accentSky opacity-75 group-hover:opacity-100" />
               </span>
               <span className="text-sm font-bold font-mono text-emerald-400 group-hover:underline">

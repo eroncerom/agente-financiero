@@ -358,7 +358,7 @@ export const WatchlistFullModal: React.FC<WatchlistFullModalProps> = ({
                               setSelectedTickerForValuation(item.ticker);
                             }}
                             className="text-[9px] font-bold font-mono px-1.5 py-0.5 rounded border bg-slate-800/80 border-slate-700 text-accentSky hover:bg-accentSky/15 hover:border-accentSky/40 transition flex items-center space-x-1"
-                            title={`Fair Value (11 Modelos): $${item.fair_value.toFixed(2)} - Click para ver desglose`}
+                            title={`Fair Value (Consenso Analistas): $${item.fair_value.toFixed(2)} - Click para ver desglose`}
                           >
                             <SlidersHorizontal className="w-2.5 h-2.5 opacity-80" />
                             <span>${item.fair_value.toFixed(1)}</span>

@@ -1462,9 +1462,11 @@ export function construirValoracionConsensoAnalistas(empresa, p0, fallbackNeutra
     });
   }
 
-  const fairValueFinal = debiasedMean && debiasedMean > 0
-    ? Number(debiasedMean.toFixed(2))
-    : (rawMean && rawMean > 0 ? Number(rawMean.toFixed(2)) : Number((fallbackNeutral || p0).toFixed(2)));
+  // El Fair Value oficial es DIRECTAMENTE el precio objetivo de consenso publicado por Wall Street (rawMean),
+  // leído en vivo en el momento de la consulta sin fórmulas sintéticas ni alteraciones numéricas.
+  const fairValueFinal = (rawMean && rawMean > 0)
+    ? Number(rawMean.toFixed(2))
+    : ((rawMedian && rawMedian > 0) ? Number(rawMedian.toFixed(2)) : Number((fallbackNeutral || p0).toFixed(2)));
 
   const targetMedianFinal = rawMedian && rawMedian > 0 ? Number(rawMedian.toFixed(2)) : fairValueFinal;
   const targetLowFinal = rawLow && rawLow > 0 ? Number(rawLow.toFixed(2)) : Number((fairValueFinal * 0.80).toFixed(2));
@@ -1642,13 +1644,16 @@ export function evaluarEmpresaPilar1(empresa, rfCustom = null, erpCustom = null,
   const netDebtShare = empresa.net_debt_per_share || 0;
   const esNoFinanciera = empresa.arquetipo !== 'BANCA_FINANCIERA' && empresa.arquetipo !== 'GESTORA_ACTIVOS' && empresa.arquetipo !== 'HOLDING_CONGLOMERADO';
 
+  // 4. FAIR VALUE POR CONSENSO OFICIAL DE WALL STREET (Precios Objetivo Analistas leídos en vivo)
+  // El usuario requiere explícitamente el consenso real de Wall Street leído en el momento de la consulta,
+  // descartando cálculos y modelos sintéticos internos.
   const fairValueFinal = consensoExt.fairValueFinal;
   const fairValueOptFinal = consensoExt.fairValueOpt;
   const fairValuePessFinal = consensoExt.fairValuePess;
   const numAnalistas = consensoExt.consensoAnalistas.number_of_analysts || 18;
-  const modeloFinal = `Consenso Institucional de Analistas (${numAnalistas} Analistas · Media sin sesgos)`;
-  const formulaFinal = `Media Consenso sin sesgos: ${currSym}${fairValueFinal.toFixed(2)} | Mediana: ${currSym}${consensoExt.consensoAnalistas.target_median.toFixed(2)} | Rango: ${currSym}${fairValuePessFinal.toFixed(2)} – ${currSym}${fairValueOptFinal.toFixed(2)}`;
-  const metodoFairValue = 'CONSENSO_ANALISTAS_SIN_SESGOS';
+  const modeloFinal = `Consenso Wall Street (${numAnalistas} Analistas en Vivo)`;
+  const formulaFinal = `Consenso Wall Street: ${currSym}${fairValueFinal.toFixed(2)} | Mediana: ${currSym}${consensoExt.consensoAnalistas.target_median.toFixed(2)} | Rango: ${currSym}${fairValuePessFinal.toFixed(2)} – ${currSym}${fairValueOptFinal.toFixed(2)}`;
+  const metodoFairValue = 'CONSENSO_WALL_STREET_LIVE';
   const distorsionDetectada = false;
 
   const esDistressDeuda = esNoFinanciera && (
@@ -1761,14 +1766,7 @@ export function evaluarEmpresaPilar1(empresa, rfCustom = null, erpCustom = null,
     fair_value_dcf_original: distorsionDetectada ? val.fairValueNeu : null,
     consenso_analistas: consensoExt.consensoAnalistas,
     modelos_valoracion_11: multimodelo.modelos,
-    resumen_valoracion_11: {
-      ...multimodelo.resumen,
-      fair_value_multimodelo: fairValueFinal,
-      mediana_limpia: consensoExt.consensoAnalistas.target_median,
-      media_limpia: consensoExt.consensoAnalistas.target_mean,
-      min_limpio: fairValuePessFinal,
-      max_limpio: fairValueOptFinal
-    },
+    resumen_valoracion_11: multimodelo.resumen,
     precio_entrada_prudente: techoMaximoMoS,
     techo_maximo_compra: techoMaximoMoS,
     target_exit_price: calculatePrudentTargetExit(p0, empresa.fifty_two_week_high, fairValueFinal),

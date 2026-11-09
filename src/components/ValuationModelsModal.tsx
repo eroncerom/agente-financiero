@@ -100,7 +100,6 @@ export const ValuationModelsModal: React.FC<ValuationModelsModalProps> = ({
   const trend = consensus?.recommendation_trend || null;
   const firms = consensus?.recent_firms || [];
 
-  const diffPct = p0 > 0 && debiasedFV > 0 ? (((debiasedFV - p0) / p0) * 100) : 0;
 
   // Escala para el gráfico horizontal de Rango Bajo-Alto y puntos institucionales
   const allPoints = [
@@ -196,17 +195,17 @@ export const ValuationModelsModal: React.FC<ValuationModelsModalProps> = ({
           </button>
         </div>
 
-        {/* Tarjetas Superiores: Fair Value (Media sin sesgos), Precio Actual, Mediana, Rango Bajo-Alto */}
+        {/* Tarjetas Superiores: Fair Value Consenso Wall St, Mediana, Rango, Precio Actual */}
         <div className="px-6 py-3.5 bg-slate-950/60 border-b border-slate-800 grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="bg-slate-900/90 border border-blue-500/40 rounded-xl p-3 shadow-sm">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-blue-300 flex items-center gap-1">
-              <Sparkles className="w-3.5 h-3.5" /> Fair Value (Media sin sesgos)
+              <Sparkles className="w-3.5 h-3.5" /> Fair Value (Consenso Wall St)
             </div>
             <div className="text-2xl font-black text-white mt-0.5 font-mono">
-              {resolvedSym}{debiasedFV.toFixed(2)}
+              {resolvedSym}{targetMean.toFixed(2)}
             </div>
-            <div className="text-[11px] text-slate-400 mt-0.5 font-mono">
-              Media bruta Wall St: {resolvedSym}{targetMean.toFixed(2)}
+            <div className="text-[11px] text-slate-400 mt-0.5">
+              Media oficial ({numAnalysts} analistas institucionales)
             </div>
           </div>
 
@@ -218,19 +217,19 @@ export const ValuationModelsModal: React.FC<ValuationModelsModalProps> = ({
               {resolvedSym}{targetMedian.toFixed(2)}
             </div>
             <div className="text-[11px] text-slate-400 mt-0.5">
-              Punto central exacto ({numAnalysts} firmas)
+              Punto central exacto de consenso
             </div>
           </div>
 
           <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-              Rango Bajo – Alto
+              Rango Objetivos 12M
             </div>
             <div className="text-lg font-bold text-slate-100 mt-1 font-mono">
               {resolvedSym}{targetLow.toFixed(2)} – {resolvedSym}{targetHigh.toFixed(2)}
             </div>
             <div className="text-[11px] text-slate-400 mt-0.5">
-              Mínimo conservador vs Máximo alcista
+              Mínimo ({resolvedSym}{targetLow.toFixed(0)}) vs Máximo ({resolvedSym}{targetHigh.toFixed(0)})
             </div>
           </div>
 
@@ -238,15 +237,15 @@ export const ValuationModelsModal: React.FC<ValuationModelsModalProps> = ({
             <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
               Precio Actual (P₀)
             </div>
-            <div className="text-xl font-bold text-slate-100 mt-0.5 font-mono">
+            <div className="text-2xl font-bold text-slate-100 mt-0.5 font-mono">
               {resolvedSym}{p0.toFixed(2)}
             </div>
-            <div className={`text-[11px] font-semibold mt-0.5 flex items-center gap-0.5 ${diffPct >= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
-              {diffPct >= 0 ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
+            <div className={`text-[11px] font-semibold mt-0.5 flex items-center gap-0.5 ${p0 <= targetMean ? 'text-emerald-400' : 'text-amber-400'}`}>
+              {p0 <= targetMean ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
               <span>
-                {diffPct >= 0
-                  ? `Potencial +${diffPct.toFixed(1)}% hasta FV`
-                  : `Sobreprecio +${Math.abs(diffPct).toFixed(1)}% vs FV`}
+                {p0 <= targetMean
+                  ? `Recorrido +${(targetMean > 0 ? ((targetMean - p0) / p0 * 100).toFixed(1) : '0')}% hasta Target`
+                  : `Sobreprecio +${(targetMean > 0 ? ((p0 - targetMean) / targetMean * 100).toFixed(1) : '0')}% vs Target`}
               </span>
             </div>
           </div>
@@ -565,19 +564,18 @@ export const ValuationModelsModal: React.FC<ValuationModelsModalProps> = ({
                 )}
               </div>
 
-              {/* 4. Explicación Metodológica de la Media del Consenso eliminando sesgos */}
+              {/* 4. Explicación Metodológica: Fair Value Fundamental vs Consenso Wall Street */}
               <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 text-xs text-slate-400 flex items-start gap-3">
                 <Info className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
-                <div className="space-y-1 leading-relaxed">
+                <div className="space-y-1.5 leading-relaxed">
                   <div className="font-bold text-slate-200">
-                    ¿Cómo se obtiene el Fair Value de Consenso eliminando sesgos ({resolvedSym}{debiasedFV.toFixed(2)})?
+                    Diferencia entre Fair Value Intrínseco ({resolvedSym}{resolvedFV.toFixed(2)}) y Consenso de Wall Street ({resolvedSym}{targetMean.toFixed(2)})
                   </div>
                   <p>
-                    En lugar de utilizar fórmulas sintéticas internas que distorsionan sectores cíclicos o financieros, el Fair Value se conecta directamente al{' '}
-                    <span className="text-slate-200 font-semibold">Consenso Institucional de Analistas</span> que cubren la compañía cuantitativa y cualitativamente.
-                    Para evitar que un único analista extremo distorsione el promedio, se aplica la{' '}
-                    <span className="text-blue-300 font-semibold">Media Recortada libre de sesgos (Trimmed Consensus Mean)</span>: se descuentan las colas inferior ({resolvedSym}{targetLow.toFixed(2)}) y superior ({resolvedSym}{targetHigh.toFixed(2)}) del agregado de {numAnalysts} analistas y se pondera con la{' '}
-                    <span className="text-emerald-300 font-semibold">Mediana ({resolvedSym}{targetMedian.toFixed(2)})</span>.
+                    <strong className="text-blue-300 font-semibold">1. Fair Value Intrínseco ({resolvedSym}{resolvedFV.toFixed(2)}):</strong> Es el valor objetivo de la empresa calculado por los modelos fundamentales de la plataforma (DCF FCFF/FCFE, EV/EBITDA, P/FCF y múltiplos de ciclo). Sobre este valor se aplica estrictamente el Margen de Seguridad para autorizar compras.
+                  </p>
+                  <p>
+                    <strong className="text-emerald-300 font-semibold">2. Consenso de Wall Street ({resolvedSym}{targetMean.toFixed(2)} / Mediana {resolvedSym}{targetMedian.toFixed(2)}):</strong> Es el precio objetivo a 12 meses emitido por los analistas institucionales (JP Morgan, Barclays, Argus, etc.). Este dato refleja el momentum y expectativas del mercado a corto plazo, pero no suplanta el valor intrínseco ni el techo prudente de compra.
                   </p>
                 </div>
               </div>

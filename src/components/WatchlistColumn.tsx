@@ -521,7 +521,7 @@ export const WatchlistColumn: React.FC<WatchlistColumnProps> = ({
                           setSelectedTickerForValuation(item.ticker);
                         }}
                         className="text-[9px] font-bold font-mono px-1 py-0.2 rounded border bg-card border-borderSubtle text-accentSky hover:bg-accentSky/15 hover:border-accentSky/40 transition flex items-center space-x-0.5"
-                        title={`Fair Value (11 Modelos): $${item.fair_value.toFixed(2)} - Click para ver desglose`}
+                        title={`Fair Value (Consenso Analistas): $${item.fair_value.toFixed(2)} - Click para ver desglose`}
                       >
                         <SlidersHorizontal className="w-2.5 h-2.5 opacity-80" />
                         <span>${item.fair_value.toFixed(1)}</span>

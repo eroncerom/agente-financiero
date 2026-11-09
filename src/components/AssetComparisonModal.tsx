@@ -338,9 +338,9 @@ export const AssetComparisonModal: React.FC<AssetComparisonModalProps> = ({
                       type="button"
                       onClick={() => setModalAsset(asset1)}
                       className="cursor-pointer hover:bg-cardSecondary/70 rounded p-1 -m-1 transition group"
-                      title="Haz clic para ver el desglose de los 11 Modelos de Valoración"
+                      title="Haz clic para ver el desglose del Consenso Institucional de Analistas"
                     >
-                      <span className="text-[10px] text-accentSky block font-sans font-bold group-hover:underline">Fair Value (11 mod. ↗)</span>
+                      <span className="text-[10px] text-accentSky block font-sans font-bold group-hover:underline">Fair Value (Consenso ↗)</span>
                       <strong className="text-textPrimary underline decoration-dotted">{sym1}{(asset1.fair_value_teorico ?? asset1.precio_cierre_P0).toFixed(2)}</strong>
                     </button>
                     <div>
@@ -396,9 +396,9 @@ export const AssetComparisonModal: React.FC<AssetComparisonModalProps> = ({
                       type="button"
                       onClick={() => setModalAsset(asset2)}
                       className="cursor-pointer hover:bg-cardSecondary/70 rounded p-1 -m-1 transition group"
-                      title="Haz clic para ver el desglose de los 11 Modelos de Valoración"
+                      title="Haz clic para ver el desglose del Consenso Institucional de Analistas"
                     >
-                      <span className="text-[10px] text-accentSky block font-sans font-bold group-hover:underline">Fair Value (11 mod. ↗)</span>
+                      <span className="text-[10px] text-accentSky block font-sans font-bold group-hover:underline">Fair Value (Consenso ↗)</span>
                       <strong className="text-textPrimary underline decoration-dotted">{sym2}{(asset2.fair_value_teorico ?? asset2.precio_cierre_P0).toFixed(2)}</strong>
                     </button>
                     <div>

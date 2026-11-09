@@ -16,13 +16,16 @@ if (!fs.existsSync(dbDir)) {
   fs.mkdirSync(dbDir, { recursive: true });
 }
 
-// Si se usa un volumen externo vacío en el primer arranque, copiar la base de datos semilla si existe
-if (DB_PATH !== DEFAULT_DB_PATH && !fs.existsSync(DB_PATH) && fs.existsSync(DEFAULT_DB_PATH)) {
-  try {
-    fs.copyFileSync(DEFAULT_DB_PATH, DB_PATH);
-    console.log(`[DB Init] Base de datos semilla copiada a volumen persistente: ${DB_PATH}`);
-  } catch (err) {
-    console.warn(`[DB Init] No se pudo copiar base semilla a ${DB_PATH}:`, err.message);
+// Si se usa un volumen externo en Docker/Cloud, copiar la base de datos semilla si no existe aún,
+// o sincronizar la tabla analyst_consensus_cache desde la semilla actualizada de la imagen
+if (DB_PATH !== DEFAULT_DB_PATH && fs.existsSync(DEFAULT_DB_PATH)) {
+  if (!fs.existsSync(DB_PATH)) {
+    try {
+      fs.copyFileSync(DEFAULT_DB_PATH, DB_PATH);
+      console.log(`[DB Init] Base de datos semilla copiada a volumen persistente: ${DB_PATH}`);
+    } catch (err) {
+      console.warn(`[DB Init] No se pudo copiar base semilla a ${DB_PATH}:`, err.message);
+    }
   }
 }
 
@@ -107,6 +110,22 @@ export function initDatabase() {
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
   `);
+
+  // Si estamos en Docker (DB_PATH !== DEFAULT_DB_PATH) y la semilla tiene datos nuevos de consenso, sincronizarlos
+  if (DB_PATH !== DEFAULT_DB_PATH && fs.existsSync(DEFAULT_DB_PATH)) {
+    try {
+      const cnt = db.prepare('SELECT COUNT(*) as c FROM analyst_consensus_cache').get()?.c || 0;
+      if (cnt < 100) {
+        const escapedSeed = DEFAULT_DB_PATH.replace(/'/g, "''");
+        db.exec(`ATTACH DATABASE '${escapedSeed}' AS seed_db;`);
+        db.exec(`INSERT OR REPLACE INTO main.analyst_consensus_cache SELECT * FROM seed_db.analyst_consensus_cache;`);
+        db.exec(`DETACH DATABASE seed_db;`);
+        console.log('[DB Init] Caché de Consenso Institucional sincronizada en el volumen de Docker.');
+      }
+    } catch (err) {
+      console.warn('[DB Init] Aviso sincronizando caché de consenso desde semilla:', err.message);
+    }
+  }
 
   // 3. Macro Yield Curve Table
   db.exec(`

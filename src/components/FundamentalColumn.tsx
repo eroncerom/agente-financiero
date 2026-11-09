@@ -1180,7 +1180,7 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
                 className="px-2 py-0.5 rounded bg-accentSky/10 hover:bg-accentSky/20 border border-accentSky/30 text-textPrimary transition cursor-pointer"
                 title="Haz clic para ver el Consenso Institucional de Analistas (Mediana, Rango, Argus, Trading Central y Bancos)"
               >
-                FV (Consenso Analistas): <strong className="text-accentSky underline decoration-dotted">{currSym}{(selectedCompany.fair_value_teorico ?? selectedCompany.precio_cierre_P0).toFixed(2)}</strong>
+                Fair Value: <strong className="text-accentSky underline decoration-dotted">{currSym}{(selectedCompany.fair_value_teorico ?? selectedCompany.precio_cierre_P0).toFixed(2)}</strong>
               </button>
               <span>·</span>
               <span>MoS: <strong className="text-statusGreen">{currSym}{(selectedCompany.escenario_neutro.VP_MoS ?? selectedCompany.escenario_neutro.VP_MoS_30).toFixed(2)}</strong></span>
@@ -1377,7 +1377,7 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
               </div>
             </div>
 
-            {/* ESCENARIO 2: NEUTRO (VALORACIÓN BASE CENTRAL - CLICABLE PARA VER CONSENSO DE ANALISTAS) */}
+            {/* ESCENARIO 2: NEUTRO (VALORACIÓN BASE CENTRAL - CLICABLE PARA VER CONSENSO DE ANALISTAS Y MODELOS) */}
             <div
               onClick={() => setIsValuationModelsModalOpen(true)}
               className="p-3.5 rounded-xl bg-canvas border border-accentSky/40 flex flex-col justify-between hover:border-accentSky hover:bg-cardSecondary/50 transition relative overflow-hidden cursor-pointer group"
@@ -1388,24 +1388,28 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
               </div>
               <div>
                 <div className="flex items-center justify-between pb-2 border-b border-borderSubtle/60">
-                  <span className="text-xs font-bold text-textPrimary group-hover:text-accentSky transition">2. Fair Value Consenso</span>
-                  <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-card text-textSecondary font-bold mr-28">
-                    {selectedCompany.consenso_analistas?.number_of_analysts || 18} analistas
-                  </span>
+                  <span className="text-xs font-bold text-textPrimary group-hover:text-accentSky transition">2. Fair Value (Consenso Wall St)</span>
+                  {selectedCompany.consenso_analistas?.number_of_analysts ? (
+                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-card text-textSecondary font-bold mr-28">
+                      {selectedCompany.consenso_analistas.number_of_analysts} analistas Wall St
+                    </span>
+                  ) : null}
                 </div>
                 <div className="mt-2.5 space-y-1.5 text-xs font-mono">
-                  <div className="flex justify-between">
-                    <span className="text-textSecondary">Mediana Analistas:</span>
-                    <span className="text-textPrimary font-bold">
-                      {currSym}{(selectedCompany.consenso_analistas?.target_median ?? selectedCompany.escenario_neutro.VP_teorico).toFixed(2)}
-                    </span>
-                  </div>
                   <div className="flex justify-between items-center bg-accentSky/10 px-1.5 py-0.5 rounded border border-accentSky/20">
-                    <span className="text-accentSky font-sans font-semibold text-[11px]">FV (Media sin sesgos):</span>
+                    <span className="text-accentSky font-sans font-semibold text-[11px]">Fair Value (Consenso):</span>
                     <span className="text-accentSky font-bold underline decoration-dotted">
                       {currSym}{selectedCompany.escenario_neutro.VP_teorico.toFixed(2)}
                     </span>
                   </div>
+                  {selectedCompany.consenso_analistas?.target_median ? (
+                    <div className="flex justify-between">
+                      <span className="text-textSecondary">Mediana Analistas:</span>
+                      <span className="text-textPrimary font-bold">
+                        {currSym}{selectedCompany.consenso_analistas.target_median.toFixed(2)}
+                      </span>
+                    </div>
+                  ) : null}
                   <div className="flex justify-between pt-1 border-t border-borderSubtle/40">
                     <span className="text-textSecondary">VP MoS ({selectedCompany.mos_discount_pct ?? mosDiscount}%):</span>
                     <span className="text-textPrimary font-bold">

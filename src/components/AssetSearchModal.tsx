@@ -10,7 +10,7 @@ import {
   Award
 } from 'lucide-react';
 import { StockPriceChart } from './StockPriceChart';
-import { Currency, ValuationModel11Item, ValuationModels11Summary } from '../types';
+import { Currency, ValuationModel11Item, ValuationModels11Summary, AnalystConsensusDetail } from '../types';
 import { ValuationModelsModal } from './ValuationModelsModal';
 
 export interface SearchAssetItem {
@@ -57,6 +57,7 @@ interface QuoteDetail {
   quality_tier?: string | null;
   modelo_valoracion?: string | null;
   formula_valoracion?: string | null;
+  consenso_analistas?: AnalystConsensusDetail | null;
   modelos_valoracion_11?: ValuationModel11Item[] | null;
   resumen_valoracion_11?: ValuationModels11Summary | null;
 }
@@ -218,19 +219,19 @@ export const AssetSearchModal: React.FC<AssetSearchModalProps> = ({
           <div
             onClick={() => setIsValuationModelsOpen(true)}
             className="cursor-pointer group rounded-lg p-1.5 -m-1.5 hover:bg-cardSecondary/60 transition"
-            title="Haz clic para abrir el desglose de los 11 Modelos de Valoración"
+            title="Haz clic para abrir el desglose del Consenso Institucional de Analistas"
           >
             <span className="text-[10px] text-accentSky uppercase block font-bold group-hover:underline">
-              Fair Value (11 Modelos ↗)
+              Fair Value (Consenso ↗)
             </span>
             <span className="text-base font-bold font-mono text-emerald-400 mt-0.5 block underline decoration-dotted">
-              {quote?.fair_value ? `${sym}${quote.fair_value.toFixed(2)}` : 'Ver 11 Modelos'}
+              {quote?.fair_value ? `${sym}${quote.fair_value.toFixed(2)}` : 'Ver Consenso'}
             </span>
             <span 
               className="text-[10px] text-textSecondary font-mono truncate block max-w-[140px]"
-              title={quote?.modelo_valoracion || 'Motor Multimodelo (11 Modelos)'}
+              title={quote?.modelo_valoracion || 'Consenso Institucional de Analistas'}
             >
-              Clic para ver desglose (11 mod.)
+              Clic para ver consenso
             </span>
           </div>
 
@@ -365,7 +366,7 @@ export const AssetSearchModal: React.FC<AssetSearchModalProps> = ({
         </div>
       </div>
 
-      {/* Modal de Desglose de los 11 Modelos de Valoración */}
+      {/* Modal de Desglose de Consenso Institucional de Analistas */}
       <ValuationModelsModal
         isOpen={isValuationModelsOpen}
         onClose={() => setIsValuationModelsOpen(false)}
@@ -374,6 +375,7 @@ export const AssetSearchModal: React.FC<AssetSearchModalProps> = ({
         currentPrice={currentPrice}
         fairValue={quote?.fair_value || undefined}
         currencySymbol={sym}
+        initialConsensus={quote?.consenso_analistas}
         initialModels={quote?.modelos_valoracion_11}
         initialSummary={quote?.resumen_valoracion_11}
       />

@@ -643,18 +643,18 @@ export const DiscardedDetailModal: React.FC<DiscardedDetailModalProps> = ({
 
           {/* Grid de los 4 niveles */}
           <div className="grid grid-cols-4 gap-2 font-mono text-center">
-            {/* 1. Fair Value (Clicable para abrir los 11 Modelos) */}
+            {/* 1. Fair Value (Clicable para abrir Consenso de Analistas) */}
             <button
               type="button"
               onClick={() => setIsValuationModelsOpen(true)}
               className={`p-2 rounded-xl border text-center transition cursor-pointer group ${
                 p0 <= fairValue ? 'bg-card border-accentSky/50 hover:border-accentSky' : 'bg-card border-accentSky/30 hover:border-accentSky'
               }`}
-              title="Haz clic para abrir el desglose de los 11 Modelos de Valoración"
+              title="Haz clic para abrir el desglose del Consenso Institucional de Analistas"
             >
-              <span className="text-[9px] uppercase tracking-wider text-accentSky font-bold block group-hover:underline">Fair Value (11 Modelos ↗)</span>
+              <span className="text-[9px] uppercase tracking-wider text-accentSky font-bold block group-hover:underline">Fair Value (Consenso ↗)</span>
               <span className="text-sm font-bold text-textPrimary block mt-0.5 underline decoration-dotted">{currSym}{fairValue.toFixed(2)}</span>
-              <span className="text-[9px] text-accentSky block mt-0.5 font-sans">Ver los 11 modelos</span>
+              <span className="text-[9px] text-accentSky block mt-0.5 font-sans">Ver consenso analistas</span>
             </button>
 
             {/* 2. MoS 10% (Buffett Quality / Suelo Real) */}
@@ -908,7 +908,7 @@ export const DiscardedDetailModal: React.FC<DiscardedDetailModalProps> = ({
         onClose={() => setIsLocalDeepDiveOpen(false)}
       />
 
-      {/* Modal de Desglose de los 11 Modelos de Valoración */}
+      {/* Modal de Desglose de Consenso Institucional de Analistas */}
       <ValuationModelsModal
         isOpen={isValuationModelsOpen}
         onClose={() => setIsValuationModelsOpen(false)}
@@ -917,6 +917,7 @@ export const DiscardedDetailModal: React.FC<DiscardedDetailModalProps> = ({
         currentPrice={p0}
         fairValue={fairValue}
         currencySymbol={currSym}
+        initialConsensus={company.consenso_analistas}
         initialModels={company.modelos_valoracion_11}
         initialSummary={company.resumen_valoracion_11}
       />
