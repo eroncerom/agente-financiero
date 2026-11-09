@@ -337,6 +337,10 @@ export interface Pilar1Result {
   fair_value_teorico?: number;
   fair_value_pess?: number;
   fair_value_opt?: number;
+  valor_intrinseco?: number;
+  valor_intrinseco_pess?: number;
+  valor_intrinseco_opt?: number;
+  consenso_wall_street?: number;
   dispersion_valoracion_pct?: number;
   health_metrics?: HealthMetricaDetalle[];
   trampas_fundamentales?: Array<{
@@ -574,6 +578,10 @@ export interface DiscardedCompanyDetail {
   fair_value_teorico?: number;
   fair_value_pess?: number;
   fair_value_opt?: number;
+  valor_intrinseco?: number;
+  valor_intrinseco_pess?: number;
+  valor_intrinseco_opt?: number;
+  consenso_wall_street?: number;
   dispersion_valoracion_pct?: number;
   health_metrics?: HealthMetricaDetalle[];
   trampas_fundamentales?: Array<{

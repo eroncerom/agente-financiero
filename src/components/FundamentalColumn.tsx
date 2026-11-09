@@ -1177,10 +1177,19 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
               <button
                 type="button"
                 onClick={() => setIsValuationModelsModalOpen(true)}
-                className="px-2 py-0.5 rounded bg-accentSky/10 hover:bg-accentSky/20 border border-accentSky/30 text-textPrimary transition cursor-pointer"
-                title="Haz clic para ver el Consenso Institucional de Analistas (Mediana, Rango, Argus, Trading Central y Bancos)"
+                className="px-2 py-0.5 rounded bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/40 text-textPrimary transition cursor-pointer flex items-center gap-1"
+                title="Haz clic para ver el desglose de los Modelos de Valor Intrínseco (DCF / Múltiplos)"
               >
-                Fair Value: <strong className="text-accentSky underline decoration-dotted">{currSym}{(selectedCompany.fair_value_teorico ?? selectedCompany.precio_cierre_P0).toFixed(2)}</strong>
+                <span>Valor Intrínseco:</span> <strong className="text-blue-400 font-bold underline decoration-dotted">{currSym}{((selectedCompany.valor_intrinseco || selectedCompany.resumen_valoracion_11?.fair_value_multimodelo || selectedCompany.fair_value_teorico) ?? selectedCompany.precio_cierre_P0).toFixed(2)}</strong>
+              </button>
+              <span>·</span>
+              <button
+                type="button"
+                onClick={() => setIsValuationModelsModalOpen(true)}
+                className="px-2 py-0.5 rounded bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-textPrimary transition cursor-pointer flex items-center gap-1"
+                title="Haz clic para ver el Consenso Institucional de Wall Street (Precios Objetivo 12M)"
+              >
+                <span>Target Wall St:</span> <strong className="text-emerald-400 font-bold">{currSym}{(selectedCompany.consenso_analistas?.target_mean ?? selectedCompany.consenso_wall_street ?? selectedCompany.fair_value_teorico ?? selectedCompany.precio_cierre_P0).toFixed(2)}</strong>
               </button>
               <span>·</span>
               <span>MoS: <strong className="text-statusGreen">{currSym}{(selectedCompany.escenario_neutro.VP_MoS ?? selectedCompany.escenario_neutro.VP_MoS_30).toFixed(2)}</strong></span>
@@ -1321,6 +1330,116 @@ export const FundamentalColumn: React.FC<FundamentalColumnProps> = ({
               </div>
             </div>
           )}
+
+          {/* Panel de Doble Valoración: Valor Intrínseco Fundamental vs Consenso Wall Street */}
+          <div className="p-3.5 rounded-2xl bg-canvas border border-borderMedium space-y-3 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Sparkles className="w-4 h-4 text-blue-400" />
+                <span className="text-xs font-bold uppercase tracking-wider text-textPrimary">
+                  Valor Intrínseco Fundamental vs Consenso de Wall Street
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsValuationModelsModalOpen(true)}
+                className="text-[11px] font-bold text-accentSky hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                Ver Desglose Completo (11 Modelos + Analistas) ↗
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs font-mono">
+              {/* Tarjeta 1: Valor Intrínseco Fundamental */}
+              <div
+                onClick={() => setIsValuationModelsModalOpen(true)}
+                className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/30 flex flex-col justify-between cursor-pointer hover:border-blue-400 transition"
+                title="Haz clic para ver los 11 modelos de valoración intrínseca (DCF, Graham, EV/EBITDA, etc.)"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-blue-300">
+                    Valor Intrínseco (DCF / Multimodelo)
+                  </span>
+                  <span className="text-[9px] px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-300 font-bold">
+                    Fundamental
+                  </span>
+                </div>
+                <div className="my-1.5 flex items-baseline gap-2">
+                  <span className="text-2xl font-black text-white">
+                    {currSym}{(selectedCompany.valor_intrinseco || selectedCompany.resumen_valoracion_11?.fair_value_multimodelo || selectedCompany.fair_value_teorico || 0).toFixed(2)}
+                  </span>
+                  {selectedCompany.precio_cierre_P0 > 0 && (
+                    <span className={`text-[10px] font-bold ${selectedCompany.precio_cierre_P0 <= (selectedCompany.valor_intrinseco || selectedCompany.resumen_valoracion_11?.fair_value_multimodelo || selectedCompany.fair_value_teorico || 1) ? 'text-statusGreen' : 'text-accentYellow'}`}>
+                      {selectedCompany.precio_cierre_P0 <= (selectedCompany.valor_intrinseco || selectedCompany.resumen_valoracion_11?.fair_value_multimodelo || selectedCompany.fair_value_teorico || 1)
+                        ? `-${((( (selectedCompany.valor_intrinseco || selectedCompany.resumen_valoracion_11?.fair_value_multimodelo || selectedCompany.fair_value_teorico || 1) - selectedCompany.precio_cierre_P0) / (selectedCompany.valor_intrinseco || selectedCompany.resumen_valoracion_11?.fair_value_multimodelo || selectedCompany.fair_value_teorico || 1)) * 100).toFixed(1)}% dto.`
+                        : `+${(((selectedCompany.precio_cierre_P0 - (selectedCompany.valor_intrinseco || selectedCompany.resumen_valoracion_11?.fair_value_multimodelo || selectedCompany.fair_value_teorico || 1)) / (selectedCompany.valor_intrinseco || selectedCompany.resumen_valoracion_11?.fair_value_multimodelo || selectedCompany.fair_value_teorico || 1)) * 100).toFixed(1)}% prima`}
+                    </span>
+                  )}
+                </div>
+                <div className="text-[10px] text-textSecondary font-sans">
+                  Rango fundamental: {currSym}{(selectedCompany.resumen_valoracion_11?.min_limpio || (selectedCompany.valor_intrinseco || 300) * 0.85).toFixed(0)} – {currSym}{(selectedCompany.resumen_valoracion_11?.max_limpio || (selectedCompany.valor_intrinseco || 300) * 1.15).toFixed(0)} (DCF FCFF/FCFE, múltiplos de balance)
+                </div>
+              </div>
+
+              {/* Tarjeta 2: Consenso Wall Street a 12M */}
+              <div
+                onClick={() => setIsValuationModelsModalOpen(true)}
+                className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex flex-col justify-between cursor-pointer hover:border-emerald-400 transition"
+                title="Haz clic para ver las calificaciones de los analistas de Wall Street"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-300">
+                    Consenso Wall Street (12M)
+                  </span>
+                  <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-bold">
+                    {selectedCompany.consenso_analistas?.number_of_analysts || 9} analistas
+                  </span>
+                </div>
+                <div className="my-1.5 flex items-baseline gap-2">
+                  <span className="text-2xl font-black text-white">
+                    {currSym}{(selectedCompany.consenso_analistas?.target_mean || selectedCompany.consenso_wall_street || selectedCompany.fair_value_teorico || 0).toFixed(2)}
+                  </span>
+                  <span className="text-[10px] text-emerald-400 font-bold">
+                    Mediana: {currSym}{(selectedCompany.consenso_analistas?.target_median || selectedCompany.consenso_analistas?.target_mean || 0).toFixed(2)}
+                  </span>
+                </div>
+                <div className="text-[10px] text-textSecondary font-sans">
+                  Rango de objetivos: {currSym}{(selectedCompany.consenso_analistas?.target_low || 0).toFixed(0)} – {currSym}{(selectedCompany.consenso_analistas?.target_high || 0).toFixed(0)} (JP Morgan, Argus, Barclays, etc.)
+                </div>
+              </div>
+
+              {/* Tarjeta 3: Trading Central / Margen MoS */}
+              <div
+                onClick={() => setIsValuationModelsModalOpen(true)}
+                className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/30 flex flex-col justify-between cursor-pointer hover:border-purple-400 transition"
+                title="Valoración cuantitativa Trading Central y Techo de compra prudente con Margen de Seguridad"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-purple-300">
+                    Trading Central / Techo MoS
+                  </span>
+                  <span className="text-[9px] px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 font-bold">
+                    {selectedCompany.consenso_analistas?.tc_discount || 'MoS'}
+                  </span>
+                </div>
+                <div className="my-1.5 flex items-baseline gap-2">
+                  <span className="text-2xl font-black text-white">
+                    {selectedCompany.consenso_analistas?.tc_fair_value
+                      ? `${currSym}${selectedCompany.consenso_analistas.tc_fair_value.toFixed(2)}`
+                      : `${currSym}${(selectedCompany.escenario_neutro.VP_MoS ?? selectedCompany.escenario_neutro.VP_MoS_30).toFixed(2)}`}
+                  </span>
+                  {selectedCompany.consenso_analistas?.tc_description && (
+                    <span className="text-[10px] text-purple-300 font-bold">
+                      {selectedCompany.consenso_analistas.tc_description}
+                    </span>
+                  )}
+                </div>
+                <div className="text-[10px] text-textSecondary font-sans">
+                  Techo compra MoS ({selectedCompany.mos_discount_pct || 20}%): {currSym}${(selectedCompany.escenario_neutro.VP_MoS ?? 0).toFixed(2)}
+                </div>
+              </div>
+            </div>
+          </div>
 
           {/* Comparador de los 3 Escenarios de Crecimiento (Pesimista, Neutro, Optimista) */}
           <div className="grid grid-cols-3 gap-3">
