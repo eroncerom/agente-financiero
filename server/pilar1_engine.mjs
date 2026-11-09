@@ -1644,16 +1644,23 @@ export function evaluarEmpresaPilar1(empresa, rfCustom = null, erpCustom = null,
   const netDebtShare = empresa.net_debt_per_share || 0;
   const esNoFinanciera = empresa.arquetipo !== 'BANCA_FINANCIERA' && empresa.arquetipo !== 'GESTORA_ACTIVOS' && empresa.arquetipo !== 'HOLDING_CONGLOMERADO';
 
-  // 4. FAIR VALUE POR CONSENSO OFICIAL DE WALL STREET (Precios Objetivo Analistas leídos en vivo)
-  // El usuario requiere explícitamente el consenso real de Wall Street leído en el momento de la consulta,
-  // descartando cálculos y modelos sintéticos internos.
-  const fairValueFinal = consensoExt.fairValueFinal;
-  const fairValueOptFinal = consensoExt.fairValueOpt;
-  const fairValuePessFinal = consensoExt.fairValuePess;
+  // 4. VALOR INTRÍNSECO FUNDAMENTAL (Multimodelo DCF) Y CONSENSO INSTITUCIONAL DE WALL STREET
+  // Enfoque Value (Graham & Buffett): La aptitud de compra y el Margen de Seguridad se anclan rigurosamente
+  // en el Valor Intrínseco Fundamental (flujos y activos reales), impidiendo que se califiquen empresas
+  // con sobreprecio solo porque los analistas de Wall Street tengan precios objetivo más altos.
+  const valorIntrinsecoFinal = multimodelo.fairValueFinal > 0 ? multimodelo.fairValueFinal : (val.fairValueNeu > 0 ? val.fairValueNeu : consensoExt.fairValueFinal);
+  const valorIntrinsecoOptFinal = multimodelo.fairValueOpt > 0 ? multimodelo.fairValueOpt : (val.fairValueOpt > 0 ? val.fairValueOpt : consensoExt.fairValueOpt);
+  const valorIntrinsecoPessFinal = multimodelo.fairValuePess > 0 ? multimodelo.fairValuePess : (val.fairValuePess > 0 ? val.fairValuePess : consensoExt.fairValuePess);
+
+  const fairValueFinal = valorIntrinsecoFinal;
+  const fairValueOptFinal = valorIntrinsecoOptFinal;
+  const fairValuePessFinal = valorIntrinsecoPessFinal;
+
+  const targetWallStMean = consensoExt.consensoAnalistas.target_mean || consensoExt.fairValueFinal;
   const numAnalistas = consensoExt.consensoAnalistas.number_of_analysts || 18;
-  const modeloFinal = `Consenso Wall Street (${numAnalistas} Analistas en Vivo)`;
-  const formulaFinal = `Consenso Wall Street: ${currSym}${fairValueFinal.toFixed(2)} | Mediana: ${currSym}${consensoExt.consensoAnalistas.target_median.toFixed(2)} | Rango: ${currSym}${fairValuePessFinal.toFixed(2)} – ${currSym}${fairValueOptFinal.toFixed(2)}`;
-  const metodoFairValue = 'CONSENSO_WALL_STREET_LIVE';
+  const modeloFinal = `Multimodelo Fundamental (DCF + Múltiplos) & Consenso Wall St`;
+  const formulaFinal = `Valor Intrínseco: ${currSym}${valorIntrinsecoFinal.toFixed(2)} | Consenso Wall St (12M): ${currSym}${targetWallStMean.toFixed(2)} | P₀: ${currSym}${p0.toFixed(2)}`;
+  const metodoFairValue = 'MULTIMODELO_FUNDAMENTAL_DCF';
   const distorsionDetectada = false;
 
   const esDistressDeuda = esNoFinanciera && (
@@ -1758,11 +1765,11 @@ export function evaluarEmpresaPilar1(empresa, rfCustom = null, erpCustom = null,
     fair_value_teorico: fairValueFinal,
     fair_value_pess: fairValuePessFinal,
     fair_value_opt: fairValueOptFinal,
-    valor_intrinseco: multimodelo.fairValueFinal || multimodelo.resumen?.fair_value_multimodelo || null,
-    valor_intrinseco_pess: multimodelo.fairValuePess || multimodelo.resumen?.min_limpio || null,
-    valor_intrinseco_opt: multimodelo.fairValueOpt || multimodelo.resumen?.max_limpio || null,
-    consenso_wall_street: consensoExt.consensoAnalistas.target_mean || null,
-    target_mean_analysts: targetWallSt,
+    valor_intrinseco: valorIntrinsecoFinal,
+    valor_intrinseco_pess: valorIntrinsecoPessFinal,
+    valor_intrinseco_opt: valorIntrinsecoOptFinal,
+    consenso_wall_street: targetWallStMean,
+    target_mean_analysts: targetWallStMean,
     fifty_two_week_low: empresa.fifty_two_week_low ?? null,
     fifty_two_week_high: empresa.fifty_two_week_high ?? null,
     metodo_fair_value: metodoFairValue,

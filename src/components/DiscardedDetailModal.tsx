@@ -91,8 +91,12 @@ export const DiscardedDetailModal: React.FC<DiscardedDetailModalProps> = ({
   const gEfectivo = company.g_efectivo_utilizado ?? (company.escenario_neutro?.g ?? (perfil === 'DEFENSIVA_MADURA' ? 0.035 : pivotG));
   const spreadRG = company.spread_r_g ?? Number(((r - gEfectivo) * 100).toFixed(2));
 
-  // Fair Value Teórico Justo (0% MoS)
-  const fairValue = company.fair_value_teorico ?? company.escenario_neutro?.VP_teorico ?? company.escalera_mos?.fair_value ?? Number((d1 / Math.max(0.005, r - gEfectivo)).toFixed(2));
+  // Valor Intrínseco Fundamental (DCF / Multimodelo) vs Consenso Wall Street
+  const intrinsicVal = company.valor_intrinseco ?? company.fair_value_teorico ?? company.escenario_neutro?.VP_teorico ?? company.escalera_mos?.fair_value ?? Number((d1 / Math.max(0.005, r - gEfectivo)).toFixed(2));
+  const wallStreetTarget = company.consenso_wall_street ?? company.target_mean_analysts ?? company.consenso_analistas?.target_mean ?? null;
+
+  // Fair Value Teórico Justo (0% MoS) anclado en Valor Intrínseco Fundamental
+  const fairValue = intrinsicVal;
 
   // Escalera de precios según MoS sobre el Fair Value realista
   const priceMoS10 = Number((fairValue * 0.90).toFixed(2));
@@ -584,33 +588,48 @@ export const DiscardedDetailModal: React.FC<DiscardedDetailModalProps> = ({
         </div>
 
         {/* 3. Desglose Numérico y Parámetros Auditados */}
-        <div className="grid grid-cols-4 gap-2 text-xs font-mono">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
+          {/* 1. Cotización actual */}
           <div className="p-2.5 rounded-xl bg-canvas border border-borderSubtle">
             <span className="text-[10px] text-textSecondary block">Cotización en Bolsa (P₀)</span>
             <span className="text-sm font-bold text-textPrimary">{currSym}{p0.toFixed(2)}</span>
             <span className="text-[9px] text-textSecondary block mt-0.5 font-sans">Precio actual de mercado</span>
           </div>
-          <div className="p-2.5 rounded-xl bg-canvas border border-borderSubtle">
-            <span className="text-[10px] text-textSecondary block">Dividendo/FCF & Yield</span>
-            <span className="text-sm font-bold text-accentSky">{currSym}{d1.toFixed(2)} ({dividendYield}%)</span>
+
+          {/* 2. Valor Intrínseco Fundamental */}
+          <div className="p-2.5 rounded-xl bg-canvas border border-blue-500/40">
+            <span className="text-[10px] text-blue-400 block font-semibold uppercase tracking-wider">
+              Valor Intrínseco (DCF)
+            </span>
+            <span className="text-sm font-bold text-white font-mono">{currSym}{intrinsicVal.toFixed(2)}</span>
+            <span className={`text-[9px] block mt-0.5 font-sans font-bold ${p0 <= intrinsicVal ? 'text-emerald-400' : 'text-amber-400'}`}>
+              {p0 <= intrinsicVal
+                ? `-${(((intrinsicVal - p0) / intrinsicVal) * 100).toFixed(1)}% Descuento`
+                : `+${(((p0 - intrinsicVal) / intrinsicVal) * 100).toFixed(1)}% Sobreprecio`}
+            </span>
+          </div>
+
+          {/* 3. Consenso Wall Street a 12M */}
+          <div className="p-2.5 rounded-xl bg-canvas border border-emerald-500/40">
+            <span className="text-[10px] text-emerald-400 block font-semibold uppercase tracking-wider">
+              Consenso Wall St (12M)
+            </span>
+            <span className="text-sm font-bold text-emerald-400 font-mono">
+              {wallStreetTarget && wallStreetTarget > 0 ? `${currSym}${wallStreetTarget.toFixed(2)}` : '—'}
+            </span>
             <span className="text-[9px] text-textSecondary block mt-0.5 font-sans">
-              Bono 10Y: 4.10% (Δ {spreadYieldVsRf > 0 ? `+${spreadYieldVsRf}%` : `${spreadYieldVsRf}%`})
+              {company.consenso_analistas?.number_of_analysts ? `${company.consenso_analistas.number_of_analysts} analistas` : 'Objetivo medio 12M'}
             </span>
           </div>
-          <div className="p-2.5 rounded-xl bg-canvas border border-borderSubtle">
-            <span className="text-[10px] text-textSecondary block">Beta / Coste Capital (r)</span>
-            <span className="text-sm font-bold text-textPrimary">{beta.toFixed(2)} / {(r * 100).toFixed(2)}%</span>
-            <span className="text-[9px] text-accentSky block mt-0.5 font-sans truncate" title={nombrePerfil}>
-              {perfil === 'DEFENSIVA_MADURA' ? 'Defensiva Madura' : perfil === 'ALTA_VOLATILIDAD_CICLICA' ? 'Alta Volatilidad' : 'Calidad & Crec.'}
-            </span>
-          </div>
+
+          {/* 4. Techo Máx. Compra MoS */}
           <div className={`p-2.5 rounded-xl bg-canvas border ${
             isEnZonaCompra ? 'border-statusGreen/40 glow-green' : isEnValorJusto ? 'border-accentYellow/30 glow-yellow' : 'border-statusRed/30'
           }`}>
-            <span className="text-[10px] text-textSecondary block">
-              Techo Máx. Compra (MoS {activeMos}%)
+            <span className="text-[10px] text-textSecondary block font-semibold">
+              Techo Compra (MoS {activeMos}%)
             </span>
-            <span className={`text-sm font-black ${isEnZonaCompra ? 'text-statusGreen' : isEnValorJusto ? 'text-accentYellow' : 'text-textPrimary'}`}>
+            <span className={`text-sm font-black font-mono ${isEnZonaCompra ? 'text-statusGreen' : isEnValorJusto ? 'text-accentYellow' : 'text-textPrimary'}`}>
               {currSym}{dynamicTecho.toFixed(2)}
             </span>
             <span className={`text-[9px] block font-sans font-bold ${
@@ -618,6 +637,18 @@ export const DiscardedDetailModal: React.FC<DiscardedDetailModalProps> = ({
             }`}>
               {dynamicDiscrepancia >= 0 ? `+${dynamicDiscrepancia}% (En Zona)` : `${dynamicDiscrepancia}% (Recargo)`}
             </span>
+          </div>
+        </div>
+
+        {/* Fila secundaria de soporte: Dividendo / FCF Yield y Beta / Coste Capital */}
+        <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+          <div className="p-2 rounded-xl bg-canvas/60 border border-borderSubtle flex items-center justify-between">
+            <span className="text-[10px] text-textSecondary">Dividendo / FCF Yield:</span>
+            <span className="text-xs font-bold text-accentSky">{currSym}{d1.toFixed(2)} ({dividendYield}%) · Bono 10Y: 4.10%</span>
+          </div>
+          <div className="p-2 rounded-xl bg-canvas/60 border border-borderSubtle flex items-center justify-between">
+            <span className="text-[10px] text-textSecondary">Beta / Coste Capital (r):</span>
+            <span className="text-xs font-bold text-textPrimary">{beta.toFixed(2)} / {(r * 100).toFixed(2)}% ({nombrePerfil})</span>
           </div>
         </div>
 
@@ -638,26 +669,50 @@ export const DiscardedDetailModal: React.FC<DiscardedDetailModalProps> = ({
           </div>
 
           <p className="text-[11px] text-textSecondary leading-relaxed">
-            Compara el <strong>precio máximo admisible</strong> que deberías pagar según el nivel de exigencia de protección. Si la cotización actual (<strong>{currSym}{p0.toFixed(2)}</strong>) está por debajo de un nivel, ese nivel te da luz verde de compra:
+            Compara el <strong>precio máximo admisible</strong> que deberías pagar según el nivel de exigencia de protección calculado sobre el <strong>Valor Intrínseco Fundamental</strong>. Si la cotización actual (<strong>{currSym}{p0.toFixed(2)}</strong>) está por debajo de un nivel, ese nivel te da luz verde de compra:
           </p>
 
-          {/* Grid de los 4 niveles */}
-          <div className="grid grid-cols-4 gap-2 font-mono text-center">
-            {/* 1. Fair Value (Clicable para abrir Consenso de Analistas) */}
+          {/* Grid de los 5 niveles: Intrínseco, Consenso Wall St y 3 escalones MoS Graham */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 font-mono text-center">
+            {/* 1. Valor Intrínseco Fundamental (DCF) */}
             <button
               type="button"
               onClick={() => setIsValuationModelsOpen(true)}
               className={`p-2 rounded-xl border text-center transition cursor-pointer group ${
-                p0 <= fairValue ? 'bg-card border-accentSky/50 hover:border-accentSky' : 'bg-card border-accentSky/30 hover:border-accentSky'
+                p0 <= intrinsicVal ? 'bg-card border-blue-500/60 hover:border-blue-400' : 'bg-card border-blue-500/30 hover:border-blue-400'
               }`}
-              title="Haz clic para abrir el desglose del Consenso Institucional de Analistas"
+              title="Haz clic para ver los modelos de Valor Intrínseco (DCF, Múltiplos y Flujos)"
             >
-              <span className="text-[9px] uppercase tracking-wider text-accentSky font-bold block group-hover:underline">Fair Value (Consenso ↗)</span>
-              <span className="text-sm font-bold text-textPrimary block mt-0.5 underline decoration-dotted">{currSym}{fairValue.toFixed(2)}</span>
-              <span className="text-[9px] text-accentSky block mt-0.5 font-sans">Ver consenso analistas</span>
+              <span className="text-[9px] uppercase tracking-wider text-blue-400 font-bold block group-hover:underline">
+                Valor Intrínseco (DCF ↗)
+              </span>
+              <span className="text-sm font-bold text-white block mt-0.5 underline decoration-dotted font-mono">
+                {currSym}{intrinsicVal.toFixed(2)}
+              </span>
+              <span className="text-[9px] text-blue-300 block mt-0.5 font-sans">
+                Ver modelos DCF
+              </span>
             </button>
 
-            {/* 2. MoS 10% (Buffett Quality / Suelo Real) */}
+            {/* 2. Consenso Wall Street a 12M */}
+            <button
+              type="button"
+              onClick={() => setIsValuationModelsOpen(true)}
+              className="p-2 rounded-xl border bg-card border-emerald-500/40 hover:border-emerald-400 text-center transition cursor-pointer group"
+              title="Haz clic para abrir el desglose de Firmas y Analistas de Wall Street"
+            >
+              <span className="text-[9px] uppercase tracking-wider text-emerald-400 font-bold block group-hover:underline">
+                Consenso Wall St (12M ↗)
+              </span>
+              <span className="text-sm font-bold text-emerald-300 block mt-0.5 underline decoration-dotted font-mono">
+                {wallStreetTarget && wallStreetTarget > 0 ? `${currSym}${wallStreetTarget.toFixed(2)}` : '—'}
+              </span>
+              <span className="text-[9px] text-emerald-400 block mt-0.5 font-sans">
+                {company.consenso_analistas?.number_of_analysts ? `${company.consenso_analistas.number_of_analysts} analistas` : 'Ver consenso'}
+              </span>
+            </button>
+
+            {/* 3. MoS 10% (Buffett Quality / Suelo Real) */}
             <button
               onClick={() => setActiveMos(10)}
               className={`p-2 rounded-xl text-left transition border ${
@@ -680,7 +735,7 @@ export const DiscardedDetailModal: React.FC<DiscardedDetailModalProps> = ({
               </span>
             </button>
 
-            {/* 3. MoS 20% (Moderado) */}
+            {/* 4. MoS 20% (Moderado) */}
             <button
               onClick={() => setActiveMos(20)}
               className={`p-2 rounded-xl text-left transition border ${
@@ -696,7 +751,7 @@ export const DiscardedDetailModal: React.FC<DiscardedDetailModalProps> = ({
               </span>
             </button>
 
-            {/* 4. MoS 30% (Graham) */}
+            {/* 5. MoS 30% (Graham) */}
             <button
               onClick={() => setActiveMos(30)}
               className={`p-2 rounded-xl text-left transition border ${
@@ -722,11 +777,11 @@ export const DiscardedDetailModal: React.FC<DiscardedDetailModalProps> = ({
             <p className="leading-relaxed">
               {perfil === 'DEFENSIVA_MADURA' ? (
                 <>
-                  Al ser <strong>{company.nombre}</strong> un negocio maduro y defensivo ($\beta = {beta.toFixed(2)}$), su crecimiento perpetuo se acota al <strong>techo macroeconómico del PIB (máx. 3.5%)</strong> con un diferencial saludable de rentabilidad ($(r - g) = {spreadRG}\%$). Esto impide que el modelo divida por cero y sitúa su valor intrínseco justo en unos realistas <strong>{currSym}{fairValue.toFixed(2)}</strong>.
+                  Al ser <strong>{company.nombre}</strong> un negocio maduro y defensivo ($\beta = {beta.toFixed(2)}$), su crecimiento perpetuo se acota al <strong>techo macroeconómico del PIB (máx. 3.5%)</strong> con un diferencial saludable de rentabilidad ($(r - g) = {spreadRG}\%$). Esto sitúa su <strong>Valor Intrínseco Fundamental en {currSym}{intrinsicVal.toFixed(2)}</strong>{wallStreetTarget && wallStreetTarget > 0 ? <> frente al <strong>Consenso de Wall Street a 12M de {currSym}{wallStreetTarget.toFixed(2)}</strong></> : ''}.
                 </>
               ) : (
                 <>
-                  Para <strong>{company.nombre}</strong> (perfil {nombrePerfil}), el modelo exige un spread mínimo de seguridad del 2.0% respecto a su coste de capital ({(r * 100).toFixed(2)}%), estableciendo su valor intrínseco teórico en <strong>{currSym}{fairValue.toFixed(2)}</strong>.
+                  Para <strong>{company.nombre}</strong> (perfil {nombrePerfil}), el modelo exige un spread mínimo de seguridad del 2.0% respecto a su coste de capital ({(r * 100).toFixed(2)}%), estableciendo su <strong>Valor Intrínseco Fundamental en {currSym}{intrinsicVal.toFixed(2)}</strong>{wallStreetTarget && wallStreetTarget > 0 ? <> frente al <strong>Consenso de Wall Street a 12M de {currSym}{wallStreetTarget.toFixed(2)}</strong></> : ''}.
                 </>
               )}
             </p>

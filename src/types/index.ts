@@ -341,6 +341,7 @@ export interface Pilar1Result {
   valor_intrinseco_pess?: number;
   valor_intrinseco_opt?: number;
   consenso_wall_street?: number;
+  target_mean_analysts?: number;
   dispersion_valoracion_pct?: number;
   health_metrics?: HealthMetricaDetalle[];
   trampas_fundamentales?: Array<{
@@ -582,6 +583,7 @@ export interface DiscardedCompanyDetail {
   valor_intrinseco_pess?: number;
   valor_intrinseco_opt?: number;
   consenso_wall_street?: number;
+  target_mean_analysts?: number;
   dispersion_valoracion_pct?: number;
   health_metrics?: HealthMetricaDetalle[];
   trampas_fundamentales?: Array<{
